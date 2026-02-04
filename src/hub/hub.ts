@@ -21,7 +21,7 @@ import { createListAgentsHandler } from "./rpc/handlers/list-agents.js";
 import { createCreateAgentHandler } from "./rpc/handlers/create-agent.js";
 import { createDeleteAgentHandler } from "./rpc/handlers/delete-agent.js";
 import { createUpdateGatewayHandler } from "./rpc/handlers/update-gateway.js";
-import { DeviceStore } from "./device-store.js";
+import { DeviceStore, type DeviceMeta } from "./device-store.js";
 import { createVerifyHandler } from "./rpc/handlers/verify.js";
 
 export class Hub {
@@ -32,7 +32,7 @@ export class Hub {
   private readonly rpc: RpcDispatcher;
   private client: GatewayClient;
   readonly deviceStore: DeviceStore;
-  private _onConfirmDevice: ((deviceId: string, agentId: string) => Promise<boolean>) | null = null;
+  private _onConfirmDevice: ((deviceId: string, agentId: string, meta?: DeviceMeta) => Promise<boolean>) | null = null;
   url: string;
   readonly path: string;
   readonly hubId: string;
@@ -52,12 +52,12 @@ export class Hub {
     this.rpc.register("verify", createVerifyHandler({
       hubId: this.hubId,
       deviceStore: this.deviceStore,
-      onConfirmDevice: (deviceId, agentId) => {
+      onConfirmDevice: (deviceId, agentId, meta) => {
         if (!this._onConfirmDevice) {
           // No UI confirm handler registered (CLI mode etc.) — auto-approve
           return Promise.resolve(true);
         }
-        return this._onConfirmDevice(deviceId, agentId);
+        return this._onConfirmDevice(deviceId, agentId, meta);
       },
     }));
     this.rpc.register("getAgentMessages", createGetAgentMessagesHandler());
@@ -166,7 +166,7 @@ export class Hub {
   }
 
   /** Register a confirmation handler for new device connections (called by Desktop UI) */
-  setConfirmHandler(handler: ((deviceId: string, agentId: string) => Promise<boolean>) | null): void {
+  setConfirmHandler(handler: ((deviceId: string, agentId: string, meta?: DeviceMeta) => Promise<boolean>) | null): void {
     this._onConfirmDevice = handler;
   }
 

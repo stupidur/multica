@@ -10,10 +10,17 @@ interface TokenEntry {
   expiresAt: number;
 }
 
+export interface DeviceMeta {
+  userAgent?: string;
+  platform?: string;
+  language?: string;
+}
+
 export interface DeviceEntry {
   deviceId: string;
   agentId: string;
   addedAt: number;
+  meta?: DeviceMeta;
 }
 
 // ============ Persistence ============
@@ -76,8 +83,8 @@ export class DeviceStore {
   // ---- Device whitelist ----
 
   /** Add a device to the whitelist (called after token verification + user confirmation) */
-  allowDevice(deviceId: string, agentId: string): void {
-    const entry: DeviceEntry = { deviceId, agentId, addedAt: Date.now() };
+  allowDevice(deviceId: string, agentId: string, meta?: DeviceMeta): void {
+    const entry: DeviceEntry = { deviceId, agentId, addedAt: Date.now(), meta };
     this.allowedDevices.set(deviceId, entry);
     this.persist();
   }
