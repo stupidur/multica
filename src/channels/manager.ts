@@ -20,6 +20,7 @@ import { listChannels } from "./registry.js";
 import { loadChannelsConfig } from "./config.js";
 import { MessageAggregator, DEFAULT_CHUNKER_CONFIG } from "../hub/message-aggregator.js";
 import type { AsyncAgent } from "../agent/async-agent.js";
+import { transcribeAudio } from "../media/transcribe.js";
 
 interface AccountHandle {
   channelId: string;
@@ -275,7 +276,7 @@ export class ChannelManager {
     }
   }
 
-  /** Download media file and forward to agent */
+  /** Download media file, process it, and forward result to agent */
   private async routeMedia(
     plugin: ChannelPlugin,
     accountId: string,
@@ -294,8 +295,23 @@ export class ChannelManager {
         const mimeType = media.mimeType ?? "image/jpeg";
         const caption = media.caption || "User sent an image.";
         agent.writeWithImages(caption, [{ type: "image", data: base64, mimeType }]);
+      } else if (media.type === "audio") {
+        // Audio: transcribe via Whisper API before reaching agent
+        const transcript = await transcribeAudio(filePath);
+        if (transcript) {
+          const parts = ["[Voice Message]", `Transcript: ${transcript}`];
+          if (media.caption) parts.push(`Caption: ${media.caption}`);
+          agent.write(parts.join("\n"));
+        } else {
+          // No API key configured — fall back to file path
+          const parts = ["[audio message received]", `File: ${filePath}`];
+          if (media.mimeType) parts.push(`Type: ${media.mimeType}`);
+          if (media.duration) parts.push(`Duration: ${media.duration}s`);
+          if (media.caption) parts.push(`Caption: ${media.caption}`);
+          agent.write(parts.join("\n"));
+        }
       } else {
-        // Audio/video/document: tell agent the file path, let it handle via skills
+        // Video/document: tell agent the file path
         const parts: string[] = [];
         parts.push(`[${media.type} message received]`);
         parts.push(`File: ${filePath}`);
@@ -306,9 +322,8 @@ export class ChannelManager {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[Channels] Failed to download media: ${msg}`);
-      // Fallback: send text-only if download fails
-      agent.write(message.text || `[Failed to download ${media.type}]`);
+      console.error(`[Channels] Failed to process media: ${msg}`);
+      agent.write(message.text || `[Failed to process ${media.type}]`);
     }
   }
 

@@ -1,10 +1,9 @@
 ---
 name: Audio Transcription
-description: Transcribe audio files using OpenAI Whisper CLI
+description: Transcribe audio files using local Whisper CLI (fallback when API is unavailable)
 version: 1.0.0
 metadata:
   emoji: "🎙️"
-  always: true
   requires:
     anyBins:
       - whisper
@@ -16,11 +15,6 @@ metadata:
       bins: [whisper]
       label: "Install OpenAI Whisper via Homebrew"
       os: [darwin]
-    - id: pip-whisper
-      kind: uv
-      package: openai-whisper
-      bins: [whisper]
-      label: "Install OpenAI Whisper via pip/uv"
   tags:
     - audio
     - transcription
@@ -29,26 +23,14 @@ userInvocable: false
 disableModelInvocation: false
 ---
 
-## Audio Transcription
+## Audio Transcription (Local Fallback)
 
-When you receive a message indicating an audio or voice message file (e.g., `[audio message received]` with a `File:` path), you should transcribe it.
+Voice messages from channels are normally transcribed automatically via the OpenAI Whisper API before reaching you. This skill is only needed when the API is unavailable.
 
-### How to Transcribe
-
-Run the following command using the `exec` tool:
+If you receive `[audio message received]` with a `File:` path (instead of `[Voice Message]` with a transcript), it means the API transcription was not available. Use local whisper to transcribe:
 
 ```
-whisper "<file_path>" --model turbo --output_format txt --output_dir /tmp
+whisper "<file_path>" --model base --output_format txt --output_dir /tmp
 ```
 
-Then read the resulting `.txt` file (same name as input, in `/tmp/`) to get the transcript.
-
-### Response Format
-
-After transcription, respond naturally based on the transcribed content. If the user said something in the voice message, respond to it as if they had typed it.
-
-If transcription fails, let the user know and suggest they check their Whisper installation.
-
-### Supported Formats
-
-Whisper supports: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, oga, flac
+Then read the `.txt` file from `/tmp/` and respond based on the transcribed content.
