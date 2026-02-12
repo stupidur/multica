@@ -5,6 +5,7 @@ import { MemoizedMarkdown } from "@multica/ui/components/markdown";
 import { StreamingMarkdown } from "@multica/ui/components/markdown/StreamingMarkdown";
 import { ToolCallItem } from "@multica/ui/components/tool-call-item";
 import { ThinkingItem } from "@multica/ui/components/thinking-item";
+import { CompactionItem } from "@multica/ui/components/compaction-item";
 import { cn, getTextContent } from "@multica/ui/lib/utils";
 import type { Message } from "@multica/store";
 import type { ContentBlock, ToolCall, ThinkingContent } from "@multica/sdk";
@@ -78,6 +79,11 @@ export const MessageList = memo(function MessageList({ messages, streamingIds }:
   return (
     <div className="relative p-6 px-4 sm:px-10 max-w-4xl mx-auto">
       {messages.map((msg) => {
+        // System messages (e.g. compaction notifications)
+        if (msg.role === "system") {
+          return <CompactionItem key={msg.id} message={msg} />
+        }
+
         // ToolResult messages → render as tool execution item
         if (msg.role === "toolResult") {
           return <ToolCallItem key={msg.id} message={msg} />

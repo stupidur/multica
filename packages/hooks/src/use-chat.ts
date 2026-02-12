@@ -9,13 +9,22 @@ import {
   type AgentMessageItem,
   type ExecApprovalRequestPayload,
   type ApprovalDecision,
+  type CompactionEndEvent,
 } from "@multica/sdk";
 
 export type ToolStatus = "running" | "success" | "error" | "interrupted";
 
+export interface CompactionInfo {
+  removed: number;
+  kept: number;
+  tokensRemoved?: number;
+  tokensKept?: number;
+  reason: string;
+}
+
 export interface Message {
   id: string;
-  role: "user" | "assistant" | "toolResult";
+  role: "user" | "assistant" | "toolResult" | "system";
   content: ContentBlock[];
   agentId: string;
   stopReason?: string;
@@ -24,6 +33,8 @@ export interface Message {
   toolArgs?: Record<string, unknown>;
   toolStatus?: ToolStatus;
   isError?: boolean;
+  systemType?: "compaction";
+  compaction?: CompactionInfo;
 }
 
 export interface ChatError {
@@ -215,6 +226,27 @@ export function useChat() {
       }
       case "tool_execution_update":
         break;
+      case "compaction_end": {
+        const ce = event as CompactionEndEvent;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: uuidv7(),
+            role: "system",
+            content: [],
+            agentId: payload.agentId,
+            systemType: "compaction",
+            compaction: {
+              removed: ce.removed,
+              kept: ce.kept,
+              tokensRemoved: ce.tokensRemoved,
+              tokensKept: ce.tokensKept,
+              reason: ce.reason,
+            },
+          },
+        ]);
+        break;
+      }
     }
   }, []);
 
