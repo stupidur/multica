@@ -192,11 +192,22 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     } else {
       // Long-polling mode — pull updates from Telegram (local development)
       this.pollingMode = true;
-      this.bot.start({
-        onStart: () => {
-          this.logger.log("Telegram bot initialized (long-polling mode)");
-        },
-      });
+      this.bot
+        .start({
+          onStart: () => {
+            this.logger.log("Telegram bot initialized (long-polling mode)");
+          },
+        })
+        .catch((err) => {
+          if (err instanceof GrammyError && err.error_code === 409) {
+            this.logger.warn(
+              "Telegram bot polling conflict (409): another instance is already running. Polling stopped.",
+            );
+          } else {
+            this.logger.error(`Telegram bot polling error: ${err instanceof Error ? err.message : err}`);
+          }
+          this.pollingMode = false;
+        });
     }
   }
 
@@ -244,6 +255,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private setupHandlers(): void {
     if (!this.bot) return;
+
+    // Global error boundary — catches unhandled errors from all middleware/handlers
+    // so they don't crash the polling loop or propagate as unhandled rejections.
+    this.bot.catch((err) => {
+      this.logger.error(`Unhandled bot error: ${err.message}`);
+    });
 
     // Per-chat serialization middleware — ensures messages from the same chat
     // are processed one at a time, preventing race conditions.

@@ -1,14 +1,35 @@
 import "reflect-metadata";
+import type { INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "nestjs-pino";
 import { AppModule } from "./app.module.js";
+
+// Process-level error handlers — prevent unhandled errors from crashing the gateway.
+process.on("unhandledRejection", (reason) => {
+  console.error("[Gateway] Unhandled rejection:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[Gateway] Uncaught exception:", err);
+});
+
+let app: INestApplication;
+
+async function gracefulShutdown(): Promise<void> {
+  console.log("[Gateway] Shutting down gracefully...");
+  await app?.close();
+  process.exit(0);
+}
+
+process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", gracefulShutdown);
 
 console.log("[Gateway] Starting bootstrap...");
 
 async function bootstrap(): Promise<void> {
   console.log("[Gateway] Creating NestFactory...");
   try {
-    const app = await NestFactory.create(AppModule, { bufferLogs: true, abortOnError: false });
+    app = await NestFactory.create(AppModule, { bufferLogs: true, abortOnError: false });
     console.log("[Gateway] NestFactory created");
 
     app.useLogger(app.get(Logger));
