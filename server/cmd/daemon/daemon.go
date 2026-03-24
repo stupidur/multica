@@ -263,7 +263,7 @@ func (d *daemon) registerRuntimes(ctx context.Context) ([]daemonRuntime, error) 
 			continue
 		}
 		runtimes = append(runtimes, map[string]string{
-			"name":    fmt.Sprintf("Local %s", strings.Title(name)),
+			"name":    fmt.Sprintf("Local %s", strings.ToUpper(name[:1])+name[1:]),
 			"type":    name,
 			"version": version,
 			"status":  "online",
@@ -293,13 +293,15 @@ func (d *daemon) registerRuntimes(ctx context.Context) ([]daemonRuntime, error) 
 }
 
 func (d *daemon) ensurePaired(ctx context.Context) (string, error) {
-	// Use the first available agent for the pairing session metadata.
+	// Use a deterministic agent for the pairing session metadata (prefer codex for backward compat).
 	var firstName string
 	var firstEntry agentEntry
-	for name, entry := range d.cfg.Agents {
-		firstName = name
-		firstEntry = entry
-		break
+	for _, preferred := range []string{"codex", "claude"} {
+		if entry, ok := d.cfg.Agents[preferred]; ok {
+			firstName = preferred
+			firstEntry = entry
+			break
+		}
 	}
 	version, err := agent.DetectVersion(ctx, firstEntry.Path)
 	if err != nil {

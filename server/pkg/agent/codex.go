@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -49,7 +48,7 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		cancel()
 		return nil, fmt.Errorf("codex stdin pipe: %w", err)
 	}
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = newLogWriter(b.cfg.Logger, "[codex:stderr] ")
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -58,14 +57,23 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 
 	b.cfg.Logger.Printf("[codex] started app-server pid=%d cwd=%s", cmd.Process.Pid, opts.Cwd)
 
+	msgCh := make(chan Message, 256)
+	resCh := make(chan Result, 1)
+
+	var output strings.Builder
+
 	c := &codexClient{
 		cfg:     b.cfg,
 		stdin:   stdin,
 		pending: make(map[int]*pendingRPC),
+		// Set onMessage before starting the reader goroutine to avoid a race.
+		onMessage: func(msg Message) {
+			if msg.Type == MessageText {
+				output.WriteString(msg.Content)
+			}
+			trySend(msgCh, msg)
+		},
 	}
-
-	msgCh := make(chan Message, 64)
-	resCh := make(chan Result, 1)
 
 	// Start reading stdout in background
 	go func() {
@@ -76,7 +84,7 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			if line == "" {
 				continue
 			}
-			c.handleLine(line, msgCh)
+			c.handleLine(line)
 		}
 		c.closeAllPending(fmt.Errorf("codex process exited"))
 	}()
@@ -94,15 +102,6 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		startTime := time.Now()
 		finalStatus := "completed"
 		var finalError string
-		var output strings.Builder
-
-		// Drain messages to accumulate output
-		c.onMessage = func(msg Message) {
-			if msg.Type == MessageText {
-				output.WriteString(msg.Content)
-			}
-			trySend(msgCh, msg)
-		}
 
 		// 1. Initialize handshake
 		_, err := c.request(runCtx, "initialize", map[string]any{
@@ -308,7 +307,7 @@ func (c *codexClient) closeAllPending(err error) {
 	}
 }
 
-func (c *codexClient) handleLine(line string, msgCh chan<- Message) {
+func (c *codexClient) handleLine(line string) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
 		return

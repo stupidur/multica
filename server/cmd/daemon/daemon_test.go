@@ -37,7 +37,7 @@ func TestResolveTaskWorkdirUsesRepoPathWhenPresent(t *testing.T) {
 	}
 }
 
-func TestBuildCodexPromptIncludesIssueAndSkills(t *testing.T) {
+func TestBuildPromptIncludesIssueAndSkills(t *testing.T) {
 	t.Parallel()
 
 	prompt := buildPrompt(daemonTask{

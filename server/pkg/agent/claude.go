@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -64,7 +65,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		cancel()
 		return nil, fmt.Errorf("claude stdin pipe: %w", err)
 	}
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = newLogWriter(b.cfg.Logger, "[claude:stderr] ")
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -73,7 +74,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 
 	b.cfg.Logger.Printf("[claude] started pid=%d cwd=%s model=%s", cmd.Process.Pid, opts.Cwd, opts.Model)
 
-	msgCh := make(chan Message, 64)
+	msgCh := make(chan Message, 256)
 	resCh := make(chan Result, 1)
 
 	go func() {
@@ -303,6 +304,8 @@ func trySend(ch chan<- Message, msg Message) {
 	select {
 	case ch <- msg:
 	default:
+		// Channel full — drop message. Final output is accumulated separately
+		// in Result.Output, so only streaming consumers are affected.
 	}
 }
 
@@ -321,4 +324,22 @@ func detectCLIVersion(ctx context.Context, execPath string) (string, error) {
 		return "", fmt.Errorf("detect version for %s: %w", execPath, err)
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+// logWriter adapts a *log.Logger to an io.Writer for capturing stderr.
+type logWriter struct {
+	logger *log.Logger
+	prefix string
+}
+
+func newLogWriter(logger *log.Logger, prefix string) *logWriter {
+	return &logWriter{logger: logger, prefix: prefix}
+}
+
+func (w *logWriter) Write(p []byte) (int, error) {
+	text := strings.TrimSpace(string(p))
+	if text != "" {
+		w.logger.Printf("%s%s", w.prefix, text)
+	}
+	return len(p), nil
 }
