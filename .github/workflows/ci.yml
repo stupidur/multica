@@ -29,17 +29,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Restore Turbo cache
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            turbo-${{ runner.os }}-
-
       - name: Build, type check, and test
-        run: pnpm turbo build typecheck test
+        run: pnpm build && pnpm typecheck && pnpm test
 
   backend:
     runs-on: ubuntu-latest
