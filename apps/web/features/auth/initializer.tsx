@@ -10,26 +10,37 @@ const logger = createLogger("auth");
 
 /**
  * Initializes auth + workspace state from localStorage on mount.
- * Must wrap the app to ensure stores are hydrated before children render.
+ * Fires getMe() and listWorkspaces() in parallel when a cached token exists.
  */
 export function AuthInitializer({ children }: { children: ReactNode }) {
-  const initialize = useAuthStore((s) => s.initialize);
-  const user = useAuthStore((s) => s.user);
-  const isLoading = useAuthStore((s) => s.isLoading);
-  const hydrateWorkspace = useWorkspaceStore((s) => s.hydrateWorkspace);
-
   useEffect(() => {
-    initialize();
-  }, [initialize]);
+    const token = localStorage.getItem("multica_token");
+    if (!token) {
+      useAuthStore.setState({ isLoading: false });
+      return;
+    }
 
-  useEffect(() => {
-    if (isLoading || !user) return;
+    api.setToken(token);
     const wsId = localStorage.getItem("multica_workspace_id");
 
-    api.listWorkspaces().then((wsList) => {
-      hydrateWorkspace(wsList, wsId);
-    }).catch((err) => logger.error("workspace hydration failed", err));
-  }, [user, isLoading, hydrateWorkspace]);
+    // Fire getMe and listWorkspaces in parallel
+    const mePromise = api.getMe();
+    const wsPromise = api.listWorkspaces();
+
+    Promise.all([mePromise, wsPromise])
+      .then(([user, wsList]) => {
+        useAuthStore.setState({ user, isLoading: false });
+        useWorkspaceStore.getState().hydrateWorkspace(wsList, wsId);
+      })
+      .catch((err) => {
+        logger.error("auth init failed", err);
+        api.setToken(null);
+        api.setWorkspaceId(null);
+        localStorage.removeItem("multica_token");
+        localStorage.removeItem("multica_workspace_id");
+        useAuthStore.setState({ user: null, isLoading: false });
+      });
+  }, []);
 
   return <>{children}</>;
 }

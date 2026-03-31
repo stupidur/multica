@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Link from "next/link";
 import type { Issue } from "@/shared/types";
 import { ActorAvatar } from "@/components/common/actor-avatar";
@@ -13,7 +14,7 @@ function formatDate(date: string): string {
   });
 }
 
-export function ListRow({ issue }: { issue: Issue }) {
+export const ListRow = memo(function ListRow({ issue }: { issue: Issue }) {
   const selected = useIssueSelectionStore((s) => s.selectedIds.has(issue.id));
   const toggle = useIssueSelectionStore((s) => s.toggle);
 
@@ -60,4 +61,4 @@ export function ListRow({ issue }: { issue: Issue }) {
       </Link>
     </div>
   );
-}
+});

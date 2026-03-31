@@ -22,6 +22,7 @@ type EventHandler = (payload: unknown) => void;
 
 interface WSContextValue {
   subscribe: (event: WSEventType, handler: EventHandler) => () => void;
+  onReconnect: (callback: () => void) => () => void;
 }
 
 const WSContext = createContext<WSContextValue | null>(null);
@@ -63,8 +64,17 @@ export function WSProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const onReconnectCb = useCallback(
+    (callback: () => void) => {
+      const ws = wsRef.current;
+      if (!ws) return () => {};
+      return ws.onReconnect(callback);
+    },
+    [],
+  );
+
   return (
-    <WSContext.Provider value={{ subscribe }}>
+    <WSContext.Provider value={{ subscribe, onReconnect: onReconnectCb }}>
       {children}
     </WSContext.Provider>
   );

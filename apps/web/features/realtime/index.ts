@@ -1,2 +1,2 @@
 export { WSProvider, useWS } from "./provider";
-export { useWSEvent } from "./hooks";
+export { useWSEvent, useWSReconnect } from "./hooks";

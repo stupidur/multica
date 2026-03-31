@@ -38,12 +38,20 @@ export default function DashboardLayout({
     );
   }
 
-  if (!user || !workspace) return null;
+  if (!user) return null;
 
   return (
     <SidebarProvider className="h-svh">
       <AppSidebar />
-      <SidebarInset className="overflow-hidden">{children}</SidebarInset>
+      <SidebarInset className="overflow-hidden">
+        {workspace ? (
+          children
+        ) : (
+          <div className="flex flex-1 items-center justify-center">
+            <MulticaIcon className="size-6 animate-pulse" />
+          </div>
+        )}
+      </SidebarInset>
     </SidebarProvider>
   );
 }

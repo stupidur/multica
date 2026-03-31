@@ -61,21 +61,22 @@ type AgentSkill struct {
 }
 
 type AgentTaskQueue struct {
-	ID           pgtype.UUID        `json:"id"`
-	AgentID      pgtype.UUID        `json:"agent_id"`
-	IssueID      pgtype.UUID        `json:"issue_id"`
-	Status       string             `json:"status"`
-	Priority     int32              `json:"priority"`
-	DispatchedAt pgtype.Timestamptz `json:"dispatched_at"`
-	StartedAt    pgtype.Timestamptz `json:"started_at"`
-	CompletedAt  pgtype.Timestamptz `json:"completed_at"`
-	Result       []byte             `json:"result"`
-	Error        pgtype.Text        `json:"error"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	Context      []byte             `json:"context"`
-	RuntimeID    pgtype.UUID        `json:"runtime_id"`
-	SessionID    pgtype.Text        `json:"session_id"`
-	WorkDir      pgtype.Text        `json:"work_dir"`
+	ID               pgtype.UUID        `json:"id"`
+	AgentID          pgtype.UUID        `json:"agent_id"`
+	IssueID          pgtype.UUID        `json:"issue_id"`
+	Status           string             `json:"status"`
+	Priority         int32              `json:"priority"`
+	DispatchedAt     pgtype.Timestamptz `json:"dispatched_at"`
+	StartedAt        pgtype.Timestamptz `json:"started_at"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	Result           []byte             `json:"result"`
+	Error            pgtype.Text        `json:"error"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	Context          []byte             `json:"context"`
+	RuntimeID        pgtype.UUID        `json:"runtime_id"`
+	SessionID        pgtype.Text        `json:"session_id"`
+	WorkDir          pgtype.Text        `json:"work_dir"`
+	TriggerCommentID pgtype.UUID        `json:"trigger_comment_id"`
 }
 
 type Comment struct {
@@ -128,6 +129,15 @@ type DaemonPairingSession struct {
 	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type DaemonToken struct {
+	ID          pgtype.UUID        `json:"id"`
+	TokenHash   string             `json:"token_hash"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	DaemonID    string             `json:"daemon_id"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type InboxItem struct {

@@ -48,7 +48,8 @@ vi.mock("@/features/workspace", () => ({
 // Mock WebSocket context
 vi.mock("@/features/realtime", () => ({
   useWSEvent: vi.fn(),
-  useWS: () => ({ subscribe: vi.fn(() => () => {}) }),
+  useWSReconnect: vi.fn(),
+  useWS: () => ({ subscribe: vi.fn(() => () => {}), onReconnect: vi.fn(() => () => {}) }),
   WSProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 

@@ -113,8 +113,15 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("# Task Assignment\n\n")
 	fmt.Fprintf(&b, "**Issue ID:** %s\n\n", ctx.IssueID)
 
-	b.WriteString("Run `multica issue get " + ctx.IssueID + " --output json` for full issue details and description.\n")
-	b.WriteString("Run `multica issue comment list " + ctx.IssueID + "` for discussion history.\n\n")
+	if ctx.TriggerCommentID != "" {
+		b.WriteString("**Trigger:** Comment Reply\n")
+		b.WriteString("**Triggering comment ID:** `" + ctx.TriggerCommentID + "`\n\n")
+	} else {
+		b.WriteString("**Trigger:** New Assignment\n\n")
+	}
+
+	b.WriteString("## Quick Start\n\n")
+	fmt.Fprintf(&b, "Run `multica issue get %s --output json` to fetch the full issue details.\n\n", ctx.IssueID)
 
 	if len(ctx.AgentSkills) > 0 {
 		b.WriteString("## Agent Skills\n\n")

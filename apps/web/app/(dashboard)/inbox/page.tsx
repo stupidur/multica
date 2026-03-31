@@ -145,15 +145,17 @@ function InboxListItem({
   item,
   isSelected,
   onClick,
+  onArchive,
 }: {
   item: InboxItem;
   isSelected: boolean;
   onClick: () => void;
+  onArchive: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+      className={`group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
         isSelected ? "bg-accent" : "hover:bg-accent/50"
       }`}
     >
@@ -174,9 +176,29 @@ function InboxListItem({
               {item.title}
             </span>
           </div>
-          {item.issue_status && (
-            <StatusIcon status={item.issue_status} className="h-3.5 w-3.5 shrink-0" />
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            <span
+              role="button"
+              tabIndex={-1}
+              title="Archive"
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchive();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                  onArchive();
+                }
+              }}
+              className="hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:inline-flex"
+            >
+              <Archive className="h-3.5 w-3.5" />
+            </span>
+            {item.issue_status && (
+              <StatusIcon status={item.issue_status} className="h-3.5 w-3.5 shrink-0" />
+            )}
+          </div>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className={`min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs ${item.read ? "text-muted-foreground/60" : "text-muted-foreground"}`}>
@@ -217,11 +239,13 @@ export default function InboxPage() {
   const handleSelect = async (item: InboxItem) => {
     setSelectedId(item.id);
     if (!item.read) {
+      useInboxStore.getState().markRead(item.id);
       try {
         await api.markInboxRead(item.id);
-        useInboxStore.getState().markRead(item.id);
       } catch {
-        // silent — selection still works even if mark-read fails
+        // Rollback: refetch to get server truth
+        useInboxStore.getState().fetch();
+        toast.error("Failed to mark as read");
       }
     }
   };
@@ -373,6 +397,7 @@ export default function InboxPage() {
                 item={item}
                 isSelected={item.id === selectedId}
                 onClick={() => handleSelect(item)}
+                onArchive={() => handleArchive(item.id)}
               />
             ))}
           </div>

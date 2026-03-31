@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -55,7 +55,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar";
 import { ActorAvatar } from "@/components/common/actor-avatar";
-import type { Issue, IssueReaction, Comment, IssueSubscriber, UpdateIssueRequest, IssueStatus, IssuePriority, TimelineEntry } from "@/shared/types";
+import type { UpdateIssueRequest, IssueStatus, IssuePriority, TimelineEntry } from "@/shared/types";
 import { ALL_STATUSES, STATUS_CONFIG, PRIORITY_ORDER, PRIORITY_CONFIG } from "@/features/issues/config";
 import { StatusIcon, PriorityIcon, DueDatePicker } from "@/features/issues/components";
 import { CommentCard } from "./comment-card";
@@ -64,9 +64,10 @@ import { AgentLiveCard, TaskRunHistory } from "./agent-live-card";
 import { api } from "@/shared/api";
 import { useAuthStore } from "@/features/auth";
 import { useWorkspaceStore, useActorName } from "@/features/workspace";
-import { useWSEvent } from "@/features/realtime";
 import { useIssueStore } from "@/features/issues";
-import type { CommentCreatedPayload, CommentUpdatedPayload, CommentDeletedPayload, SubscriberAddedPayload, SubscriberRemovedPayload, ActivityCreatedPayload, ReactionAddedPayload, ReactionRemovedPayload, IssueReactionAddedPayload, IssueReactionRemovedPayload } from "@/shared/types";
+import { useIssueTimeline } from "@/features/issues/hooks/use-issue-timeline";
+import { useIssueReactions } from "@/features/issues/hooks/use-issue-reactions";
+import { useIssueSubscribers } from "@/features/issues/hooks/use-issue-subscribers";
 import { ReactionBar } from "@/components/common/reaction-bar";
 import { timeAgo } from "@/shared/utils";
 
@@ -126,20 +127,6 @@ function formatActivity(
   }
 }
 
-function commentToTimelineEntry(c: Comment): TimelineEntry {
-  return {
-    type: "comment",
-    id: c.id,
-    actor_type: c.author_type,
-    actor_id: c.author_id,
-    content: c.content,
-    parent_id: c.parent_id,
-    created_at: c.created_at,
-    updated_at: c.updated_at,
-    comment_type: c.type,
-    reactions: c.reactions ?? [],
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Property row
@@ -197,12 +184,6 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
   });
   const sidebarRef = usePanelRef();
   const [sidebarOpen, setSidebarOpen] = useState(defaultSidebarOpen);
-  const [issue, setIssue] = useState<Issue | null>(null);
-  const [issueReactions, setIssueReactions] = useState<IssueReaction[]>([]);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [subscribers, setSubscribers] = useState<IssueSubscriber[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const titleFocusedRef = useRef(false);
@@ -210,123 +191,58 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(true);
 
-  // Watch the global issue store for real-time updates from other users/agents
-  const storeIssue = useIssueStore((s) => s.issues.find((i) => i.id === id));
+  // Single source of truth: read issue directly from global store
+  const issue = useIssueStore((s) => s.issues.find((i) => i.id === id)) ?? null;
+  const [issueLoading, setIssueLoading] = useState(!issue);
 
-  const wasLoadedRef = useRef(false);
-
+  // If issue isn't in the store yet, fetch and upsert it
   useEffect(() => {
-    if (storeIssue) {
-      wasLoadedRef.current = true;
-      setIssue(storeIssue);
-      if (!titleFocusedRef.current) {
-        setTitleDraft(storeIssue.title);
-      }
-    } else if (wasLoadedRef.current && !loading) {
-      // Issue was in the store but is now gone (deleted by another user)
-      setIssue(null);
+    if (issue) {
+      setIssueLoading(false);
+      return;
     }
-  }, [storeIssue, loading]);
-
-  useEffect(() => {
-    wasLoadedRef.current = false;
-    setIssue(null);
-    setTitleDraft("");
-    setIssueReactions([]);
-    setTimeline([]);
-    setSubscribers([]);
-    setLoading(true);
-    Promise.all([api.getIssue(id), api.listTimeline(id), api.listIssueSubscribers(id)])
-      .then(([iss, entries, subs]) => {
-        setIssue(iss);
-        setIssueReactions(iss.reactions ?? []);
-        setTitleDraft(iss.title);
-        setTimeline(entries);
-        setSubscribers(subs);
+    setIssueLoading(true);
+    api
+      .getIssue(id)
+      .then((iss) => {
+        useIssueStore.getState().addIssue(iss);
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [id]);
+      .finally(() => setIssueLoading(false));
+  }, [id, !!issue]);
 
-  const handleSubmitComment = async (content: string) => {
-    if (!content.trim() || submitting || !user) return;
-    const tempId = "temp-" + Date.now();
-    const tempEntry: TimelineEntry = {
-      type: "comment",
-      id: tempId,
-      actor_type: "member",
-      actor_id: user.id,
-      content,
-      parent_id: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      comment_type: "comment",
-    };
-    setTimeline((prev) => [...prev, tempEntry]);
-    setSubmitting(true);
-    try {
-      const comment = await api.createComment(id, content);
-      setTimeline((prev) => prev.map((e) => (e.id === tempId ? commentToTimelineEntry(comment) : e)));
-    } catch {
-      setTimeline((prev) => prev.filter((e) => e.id !== tempId));
-      toast.error("Failed to send comment");
-    } finally {
-      setSubmitting(false);
+  // Sync titleDraft when issue title changes (from WS or other views)
+  useEffect(() => {
+    if (issue && !titleFocusedRef.current) {
+      setTitleDraft(issue.title);
     }
-  };
+  }, [issue?.title]);
 
-  const handleSubmitReply = async (parentId: string, content: string) => {
-    if (!content.trim() || !user) return;
-    try {
-      const comment = await api.createComment(id, content, "comment", parentId);
-      setTimeline((prev) => {
-        if (prev.some((e) => e.id === comment.id)) return prev;
-        return [...prev, commentToTimelineEntry(comment)];
-      });
-    } catch {
-      toast.error("Failed to send reply");
-    }
-  };
+  // Custom hooks — encapsulate timeline, reactions, subscribers
+  const {
+    timeline, submitting, submitComment, submitReply,
+    editComment, deleteComment, toggleReaction: handleToggleReaction,
+  } = useIssueTimeline(id, user?.id);
 
-  const handleEditComment = async (commentId: string, content: string) => {
-    try {
-      const updated = await api.updateComment(commentId, content);
-      setTimeline((prev) => prev.map((e) => (e.id === updated.id ? commentToTimelineEntry(updated) : e)));
-    } catch {
-      toast.error("Failed to update comment");
-    }
-  };
+  const {
+    reactions: issueReactions,
+    toggleReaction: handleToggleIssueReaction,
+  } = useIssueReactions(id, user?.id);
 
-  const handleDeleteComment = async (commentId: string) => {
-    try {
-      await api.deleteComment(commentId);
-      setTimeline((prev) => {
-        const idsToRemove = new Set<string>([commentId]);
-        // Recursively collect all descendant IDs
-        let added = true;
-        while (added) {
-          added = false;
-          for (const e of prev) {
-            if (e.parent_id && idsToRemove.has(e.parent_id) && !idsToRemove.has(e.id)) {
-              idsToRemove.add(e.id);
-              added = true;
-            }
-          }
-        }
-        return prev.filter((e) => !idsToRemove.has(e.id));
-      });
-    } catch {
-      toast.error("Failed to delete comment");
-    }
-  };
+  const {
+    subscribers, isSubscribed, toggleSubscribe: handleToggleSubscribe, toggleSubscriber,
+  } = useIssueSubscribers(id, user?.id);
 
+  const loading = issueLoading;
+
+  // Issue field updates — write directly to the global store (single source of truth)
   const handleUpdateField = useCallback(
     (updates: Partial<UpdateIssueRequest>) => {
       if (!issue) return;
-      const prev = issue;
-      setIssue((curr) => (curr ? ({ ...curr, ...updates } as Issue) : curr));
+      const prev = { ...issue };
+      useIssueStore.getState().updateIssue(id, updates);
       api.updateIssue(id, updates).catch(() => {
-        setIssue(prev);
+        useIssueStore.getState().updateIssue(id, prev);
         toast.error("Failed to update issue");
       });
     },
@@ -337,6 +253,7 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
     setDeleting(true);
     try {
       await api.deleteIssue(issue!.id);
+      useIssueStore.getState().removeIssue(issue!.id);
       toast.success("Issue deleted");
       if (onDelete) onDelete();
       else router.push("/issues");
@@ -345,275 +262,6 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
       setDeleting(false);
     }
   };
-
-  // Subscriber state
-  const isSubscribed = subscribers.some(
-    (s) => s.user_type === "member" && s.user_id === user?.id
-  );
-
-  const toggleSubscriber = async (userId: string, userType: "member" | "agent", currentlySubscribed: boolean) => {
-    if (!issue) return;
-    try {
-      if (currentlySubscribed) {
-        await api.unsubscribeFromIssue(id, userId, userType);
-        setSubscribers((prev) => prev.filter((s) => !(s.user_id === userId && s.user_type === userType)));
-      } else {
-        await api.subscribeToIssue(id, userId, userType);
-        setSubscribers((prev) => {
-          // Deduplicate: WS event may have already added this subscriber
-          if (prev.some((s) => s.user_id === userId && s.user_type === userType)) return prev;
-          return [...prev, { issue_id: id, user_type: userType, user_id: userId, reason: "manual" as const, created_at: new Date().toISOString() }];
-        });
-      }
-    } catch {
-      toast.error("Failed to update subscriber");
-    }
-  };
-
-  const handleToggleSubscribe = () => {
-    if (user) toggleSubscriber(user.id, "member", isSubscribed);
-  };
-
-  // Real-time comment updates
-  useWSEvent(
-    "comment:created",
-    useCallback((payload: unknown) => {
-      const { comment } = payload as CommentCreatedPayload;
-      if (comment.issue_id !== id) return;
-      // Skip own comments — already added locally via API response
-      if (comment.author_type === "member" && comment.author_id === user?.id) return;
-      setTimeline((prev) => {
-        if (prev.some((e) => e.id === comment.id)) return prev;
-        return [...prev, commentToTimelineEntry(comment)];
-      });
-    }, [id, user?.id]),
-  );
-
-  useWSEvent(
-    "comment:updated",
-    useCallback((payload: unknown) => {
-      const { comment } = payload as CommentUpdatedPayload;
-      if (comment.issue_id === id) {
-        setTimeline((prev) => prev.map((e) => (e.id === comment.id ? commentToTimelineEntry(comment) : e)));
-      }
-    }, [id]),
-  );
-
-  useWSEvent(
-    "comment:deleted",
-    useCallback((payload: unknown) => {
-      const { comment_id, issue_id } = payload as CommentDeletedPayload;
-      if (issue_id === id) {
-        setTimeline((prev) => {
-          const idsToRemove = new Set<string>([comment_id]);
-          let added = true;
-          while (added) {
-            added = false;
-            for (const e of prev) {
-              if (e.parent_id && idsToRemove.has(e.parent_id) && !idsToRemove.has(e.id)) {
-                idsToRemove.add(e.id);
-                added = true;
-              }
-            }
-          }
-          return prev.filter((e) => !idsToRemove.has(e.id));
-        });
-      }
-    }, [id]),
-  );
-
-  useWSEvent(
-    "activity:created",
-    useCallback((payload: unknown) => {
-      const p = payload as ActivityCreatedPayload;
-      if (p.issue_id !== id) return;
-      const entry = p.entry;
-      if (!entry || !entry.id) return;
-      setTimeline((prev) => {
-        if (prev.some((e) => e.id === entry.id)) return prev;
-        return [...prev, entry];
-      });
-    }, [id]),
-  );
-
-  // Real-time reaction updates
-  useWSEvent(
-    "reaction:added",
-    useCallback((payload: unknown) => {
-      const { reaction, issue_id } = payload as ReactionAddedPayload;
-      if (issue_id !== id) return;
-      // Skip own reactions — already added optimistically
-      if (reaction.actor_type === "member" && reaction.actor_id === user?.id) return;
-      setTimeline((prev) => prev.map((e) => {
-        if (e.id !== reaction.comment_id) return e;
-        const existing = e.reactions ?? [];
-        if (existing.some((r) => r.id === reaction.id)) return e;
-        return { ...e, reactions: [...existing, reaction] };
-      }));
-    }, [id, user?.id]),
-  );
-
-  useWSEvent(
-    "reaction:removed",
-    useCallback((payload: unknown) => {
-      const p = payload as ReactionRemovedPayload;
-      if (p.issue_id !== id) return;
-      // Skip own removals — already removed optimistically
-      if (p.actor_type === "member" && p.actor_id === user?.id) return;
-      setTimeline((prev) => prev.map((e) => {
-        if (e.id !== p.comment_id) return e;
-        return {
-          ...e,
-          reactions: (e.reactions ?? []).filter(
-            (r) => !(r.emoji === p.emoji && r.actor_type === p.actor_type && r.actor_id === p.actor_id),
-          ),
-        };
-      }));
-    }, [id, user?.id]),
-  );
-
-  // Real-time issue reaction updates
-  useWSEvent(
-    "issue_reaction:added",
-    useCallback((payload: unknown) => {
-      const { reaction, issue_id } = payload as IssueReactionAddedPayload;
-      if (issue_id !== id) return;
-      if (reaction.actor_type === "member" && reaction.actor_id === user?.id) return;
-      setIssueReactions((prev) => {
-        if (prev.some((r) => r.id === reaction.id)) return prev;
-        return [...prev, reaction];
-      });
-    }, [id, user?.id]),
-  );
-
-  useWSEvent(
-    "issue_reaction:removed",
-    useCallback((payload: unknown) => {
-      const p = payload as IssueReactionRemovedPayload;
-      if (p.issue_id !== id) return;
-      if (p.actor_type === "member" && p.actor_id === user?.id) return;
-      setIssueReactions((prev) =>
-        prev.filter((r) => !(r.emoji === p.emoji && r.actor_type === p.actor_type && r.actor_id === p.actor_id)),
-      );
-    }, [id, user?.id]),
-  );
-
-  const handleToggleIssueReaction = async (emoji: string) => {
-    if (!user) return;
-    const existing = issueReactions.find(
-      (r) => r.emoji === emoji && r.actor_type === "member" && r.actor_id === user.id,
-    );
-    if (existing) {
-      setIssueReactions((prev) => prev.filter((r) => r.id !== existing.id));
-      try {
-        await api.removeIssueReaction(id, emoji);
-      } catch {
-        setIssueReactions((prev) => [...prev, existing]);
-        toast.error("Failed to remove reaction");
-      }
-    } else {
-      const temp = {
-        id: `temp-${Date.now()}`,
-        issue_id: id,
-        actor_type: "member",
-        actor_id: user.id,
-        emoji,
-        created_at: new Date().toISOString(),
-      };
-      setIssueReactions((prev) => [...prev, temp]);
-      try {
-        const reaction = await api.addIssueReaction(id, emoji);
-        setIssueReactions((prev) => prev.map((r) => (r.id === temp.id ? reaction : r)));
-      } catch {
-        setIssueReactions((prev) => prev.filter((r) => r.id !== temp.id));
-        toast.error("Failed to add reaction");
-      }
-    }
-  };
-
-  const handleToggleReaction = async (commentId: string, emoji: string) => {
-    if (!user) return;
-    const entry = timeline.find((e) => e.id === commentId);
-    const existing = (entry?.reactions ?? []).find(
-      (r) => r.emoji === emoji && r.actor_type === "member" && r.actor_id === user.id,
-    );
-    if (existing) {
-      // Optimistic remove
-      setTimeline((prev) => prev.map((e) => {
-        if (e.id !== commentId) return e;
-        return { ...e, reactions: (e.reactions ?? []).filter((r) => r.id !== existing.id) };
-      }));
-      try {
-        await api.removeReaction(commentId, emoji);
-      } catch {
-        // Rollback
-        setTimeline((prev) => prev.map((e) => {
-          if (e.id !== commentId) return e;
-          return { ...e, reactions: [...(e.reactions ?? []), existing] };
-        }));
-        toast.error("Failed to remove reaction");
-      }
-    } else {
-      // Optimistic add
-      const tempReaction = {
-        id: `temp-${Date.now()}`,
-        comment_id: commentId,
-        actor_type: "member",
-        actor_id: user.id,
-        emoji,
-        created_at: new Date().toISOString(),
-      };
-      setTimeline((prev) => prev.map((e) => {
-        if (e.id !== commentId) return e;
-        return { ...e, reactions: [...(e.reactions ?? []), tempReaction] };
-      }));
-      try {
-        const reaction = await api.addReaction(commentId, emoji);
-        setTimeline((prev) => prev.map((e) => {
-          if (e.id !== commentId) return e;
-          return {
-            ...e,
-            reactions: (e.reactions ?? []).map((r) => (r.id === tempReaction.id ? reaction : r)),
-          };
-        }));
-      } catch {
-        // Rollback
-        setTimeline((prev) => prev.map((e) => {
-          if (e.id !== commentId) return e;
-          return { ...e, reactions: (e.reactions ?? []).filter((r) => r.id !== tempReaction.id) };
-        }));
-        toast.error("Failed to add reaction");
-      }
-    }
-  };
-
-  // Real-time subscriber updates
-  useWSEvent(
-    "subscriber:added",
-    useCallback((payload: unknown) => {
-      const p = payload as SubscriberAddedPayload;
-      if (p.issue_id !== id) return;
-      setSubscribers((prev) => {
-        if (prev.some((s) => s.user_id === p.user_id && s.user_type === p.user_type)) return prev;
-        return [...prev, {
-          issue_id: p.issue_id,
-          user_type: p.user_type as "member" | "agent",
-          user_id: p.user_id,
-          reason: p.reason as IssueSubscriber["reason"],
-          created_at: new Date().toISOString(),
-        }];
-      });
-    }, [id]),
-  );
-
-  useWSEvent(
-    "subscriber:removed",
-    useCallback((payload: unknown) => {
-      const p = payload as SubscriberRemovedPayload;
-      if (p.issue_id !== id) return;
-      setSubscribers((prev) => prev.filter((s) => !(s.user_id === p.user_id && s.user_type === p.user_type)));
-    }, [id]),
-  );
 
   if (loading) {
     return (
@@ -922,6 +570,7 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
           />
 
           <RichTextEditor
+            key={id}
             defaultValue={issue.description || ""}
             placeholder="Add description..."
             onUpdate={(md) => handleUpdateField({ description: md || undefined })}
@@ -1095,9 +744,9 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
                         entry={entry}
                         allReplies={repliesByParent}
                         currentUserId={user?.id}
-                        onReply={handleSubmitReply}
-                        onEdit={handleEditComment}
-                        onDelete={handleDeleteComment}
+                        onReply={submitReply}
+                        onEdit={editComment}
+                        onDelete={deleteComment}
                         onToggleReaction={handleToggleReaction}
                       />
                     );
@@ -1154,7 +803,7 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
 
             {/* Bottom comment input — no avatar, full width */}
             <div className="mt-4">
-              <CommentInput onSubmit={handleSubmitComment} />
+              <CommentInput onSubmit={submitComment} />
             </div>
           </div>
         </div>

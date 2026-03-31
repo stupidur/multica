@@ -86,13 +86,16 @@ const stableStoreIssues = vi.hoisted(() => [
   },
 ]);
 vi.mock("@/features/issues", () => ({
-  useIssueStore: (selector: (s: any) => any) =>
-    selector({ issues: stableStoreIssues }),
+  useIssueStore: Object.assign(
+    (selector: (s: any) => any) => selector({ issues: stableStoreIssues }),
+    { getState: () => ({ issues: stableStoreIssues, addIssue: vi.fn(), updateIssue: vi.fn(), removeIssue: vi.fn() }) },
+  ),
 }));
 
 // Mock ws-context
 vi.mock("@/features/realtime", () => ({
   useWSEvent: () => {},
+  useWSReconnect: () => {},
 }));
 
 // Mock calendar (react-day-picker needs browser APIs)
@@ -270,8 +273,9 @@ describe("IssueDetailPage", () => {
   });
 
   it("shows 'Issue not found' for missing issue", async () => {
-    mockGetIssue.mockRejectedValueOnce(new Error("Not found"));
-    mockListTimeline.mockRejectedValueOnce(new Error("Not found"));
+    // issue-detail fetches getIssue, useIssueReactions also fetches getIssue
+    mockGetIssue.mockRejectedValue(new Error("Not found"));
+    mockListTimeline.mockRejectedValue(new Error("Not found"));
     await renderPage("nonexistent-id");
 
     await waitFor(() => {

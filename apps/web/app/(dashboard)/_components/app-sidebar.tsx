@@ -14,6 +14,7 @@ import {
   Check,
   BookOpenText,
   SquarePen,
+  CircleUser,
 } from "lucide-react";
 import { WorkspaceAvatar } from "@/features/workspace";
 import { useIssueDraftStore } from "@/features/issues/stores/draft-store";
@@ -46,6 +47,7 @@ import { useModalStore } from "@/features/modals";
 
 const primaryNav = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/my-issues", label: "My Issues", icon: CircleUser },
   { href: "/issues", label: "Issues", icon: ListTodo },
 ];
 

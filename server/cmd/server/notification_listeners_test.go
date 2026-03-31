@@ -471,8 +471,8 @@ func TestNotification_AssigneeChanged(t *testing.T) {
 	}
 }
 
-// TestNotification_TaskCompleted verifies that subscribers get a "task_completed"
-// notification when a task completes, excluding the agent.
+// TestNotification_TaskCompleted verifies that task:completed events do NOT
+// create inbox notifications (completion is visible from the status change).
 func TestNotification_TaskCompleted(t *testing.T) {
 	queries := db.New(testPool)
 	bus := newNotificationBus(t, queries)
@@ -503,16 +503,10 @@ func TestNotification_TaskCompleted(t *testing.T) {
 		},
 	})
 
-	// Creator should get a task_completed notification
+	// No inbox notification should be created for task:completed
 	creatorItems := inboxItemsForRecipient(t, queries, testUserID)
-	if len(creatorItems) != 1 {
-		t.Fatalf("expected 1 inbox item for creator, got %d", len(creatorItems))
-	}
-	if creatorItems[0].Type != "task_completed" {
-		t.Fatalf("expected type 'task_completed', got %q", creatorItems[0].Type)
-	}
-	if creatorItems[0].Severity != "attention" {
-		t.Fatalf("expected severity 'attention', got %q", creatorItems[0].Severity)
+	if len(creatorItems) != 0 {
+		t.Fatalf("expected 0 inbox items for creator on task:completed, got %d", len(creatorItems))
 	}
 }
 

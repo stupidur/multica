@@ -13,6 +13,7 @@ import type {
   MemberAddedPayload,
   WorkspaceDeletedPayload,
   MemberRemovedPayload,
+  IssueUpdatedPayload,
 } from "@/shared/types";
 
 const logger = createLogger("realtime-sync");
@@ -68,12 +69,25 @@ export function useRealtimeSync(ws: WSClient | null) {
     };
 
     const unsubAny = ws.onAny((msg) => {
+      const myUserId = useAuthStore.getState().user?.id;
+      if (msg.actor_id && msg.actor_id === myUserId) {
+        logger.debug("skipping self-event", msg.type);
+        return;
+      }
       const prefix = msg.type.split(":")[0] ?? "";
       const refresh = refreshMap[prefix];
       if (refresh) debouncedRefresh(prefix, refresh);
     });
 
-    // --- Side-effect handlers (toast, navigation, self-check) ---
+    // --- Side-effect handlers (toast, navigation, cross-store sync) ---
+
+    // Keep inbox issue_status in sync when issues change
+    const unsubIssueUpdated = ws.on("issue:updated", (p) => {
+      const { issue } = p as IssueUpdatedPayload;
+      if (issue?.id && issue?.status) {
+        useInboxStore.getState().updateIssueStatus(issue.id, issue.status);
+      }
+    });
 
     const unsubWsDeleted = ws.on("workspace:deleted", (p) => {
       const { workspace_id } = p as WorkspaceDeletedPayload;
@@ -108,6 +122,7 @@ export function useRealtimeSync(ws: WSClient | null) {
 
     return () => {
       unsubAny();
+      unsubIssueUpdated();
       unsubWsDeleted();
       unsubMemberRemoved();
       unsubMemberAdded();

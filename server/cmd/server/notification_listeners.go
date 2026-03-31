@@ -543,42 +543,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		)
 	})
 
-	// task:completed — notify all subscribers except the agent
-	bus.Subscribe(protocol.EventTaskCompleted, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		agentID, _ := payload["agent_id"].(string)
-		issueID, _ := payload["issue_id"].(string)
-		if issueID == "" {
-			return
-		}
-
-		// Look up issue to get the title
-		issue, err := queries.GetIssue(ctx, parseUUID(issueID))
-		if err != nil {
-			slog.Error("task:completed notification: failed to get issue", "issue_id", issueID, "error", err)
-			return
-		}
-
-		// Use the agent ID as an exclusion (since the agent did the work)
-		exclude := map[string]bool{}
-		if agentID != "" {
-			exclude[agentID] = true
-		}
-
-		notifySubscribers(ctx, queries, bus, issueID, issue.Status, e.WorkspaceID,
-			events.Event{
-				Type:        e.Type,
-				WorkspaceID: e.WorkspaceID,
-				ActorType:   "agent",
-				ActorID:     agentID,
-			},
-			exclude, "task_completed", "attention",
-			issue.Title, "",
-			emptyDetails)
-	})
+	// task:completed — no inbox notification (completion is visible from status change)
 
 	// task:failed — notify all subscribers except the agent
 	bus.Subscribe(protocol.EventTaskFailed, func(e events.Event) {

@@ -18,3 +18,16 @@ export function useWSEvent(event: WSEventType, handler: EventHandler) {
     return unsub;
   }, [event, handler, subscribe]);
 }
+
+/**
+ * Hook that registers a callback to run on WebSocket reconnection.
+ * Useful for refetching component-local data after a network interruption.
+ */
+export function useWSReconnect(callback: () => void) {
+  const { onReconnect } = useWS();
+
+  useEffect(() => {
+    const unsub = onReconnect(callback);
+    return unsub;
+  }, [callback, onReconnect]);
+}

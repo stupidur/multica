@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Bot } from "lucide-react";
 import { ReactRenderer } from "@tiptap/react";
+import { computePosition, offset, flip, shift } from "@floating-ui/dom";
 import { useWorkspaceStore } from "@/features/workspace";
 import type { SuggestionOptions, SuggestionProps } from "@tiptap/suggestion";
 
@@ -179,10 +180,17 @@ export function createMentionSuggestion(): Omit<
         clientRect: (() => DOMRect | null) | null | undefined,
       ) {
         if (!clientRect) return;
-        const rect = clientRect();
-        if (!rect) return;
-        el.style.left = `${rect.left}px`;
-        el.style.top = `${rect.bottom + 4}px`;
+        const virtualEl = {
+          getBoundingClientRect: () => clientRect() ?? new DOMRect(),
+        };
+        computePosition(virtualEl, el, {
+          placement: "bottom-start",
+          strategy: "fixed",
+          middleware: [offset(4), flip(), shift({ padding: 8 })],
+        }).then(({ x, y }) => {
+          el.style.left = `${x}px`;
+          el.style.top = `${y}px`;
+        });
       }
 
       function cleanup() {
