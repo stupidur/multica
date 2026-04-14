@@ -113,6 +113,14 @@ if (!gotTheLock) {
       return shell.openExternal(url);
     });
 
+    // IPC: toggle immersive mode — hides the macOS traffic lights so full-screen
+    // modals (create-workspace, onboarding) can place UI in the top-left corner
+    // without fighting the native window controls' hit-test.
+    ipcMain.handle("window:setImmersive", (_event, immersive: boolean) => {
+      if (process.platform !== "darwin") return;
+      mainWindow?.setWindowButtonVisibility(!immersive);
+    });
+
     createWindow();
 
     setupAutoUpdater(() => mainWindow);

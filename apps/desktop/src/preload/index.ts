@@ -13,6 +13,9 @@ const desktopAPI = {
   },
   /** Open a URL in the default browser */
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
+  /** Toggle immersive mode — hide macOS traffic lights for full-screen modals */
+  setImmersiveMode: (immersive: boolean) =>
+    ipcRenderer.invoke("window:setImmersive", immersive),
 };
 
 const updaterAPI = {

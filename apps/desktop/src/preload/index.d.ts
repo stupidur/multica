@@ -5,6 +5,8 @@ interface DesktopAPI {
   onAuthToken: (callback: (token: string) => void) => () => void;
   /** Open a URL in the default browser. */
   openExternal: (url: string) => Promise<void>;
+  /** Hide macOS traffic lights for full-screen modals; restore when false. */
+  setImmersiveMode: (immersive: boolean) => Promise<void>;
 }
 
 interface UpdaterAPI {
