@@ -2,6 +2,11 @@ package main
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/events"
@@ -45,6 +50,78 @@ func addTestSubscriber(t *testing.T, issueID, userType, userID, reason string) {
 	if err != nil {
 		t.Fatalf("addTestSubscriber: %v", err)
 	}
+}
+
+func integrationTestAgentID(t *testing.T) string {
+	t.Helper()
+	var agentID string
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT id
+		FROM agent
+		WHERE workspace_id = $1 AND name = $2
+		LIMIT 1
+	`, testWorkspaceID, "Integration Test Agent").Scan(&agentID); err != nil {
+		t.Fatalf("lookup integration test agent: %v", err)
+	}
+	return agentID
+}
+
+func createTestProject(t *testing.T, title string) string {
+	t.Helper()
+	var projectID string
+	if err := testPool.QueryRow(context.Background(), `
+		INSERT INTO project (workspace_id, title, status, priority)
+		VALUES ($1, $2, 'active', 'medium')
+		RETURNING id
+	`, testWorkspaceID, title).Scan(&projectID); err != nil {
+		t.Fatalf("create test project: %v", err)
+	}
+	return projectID
+}
+
+func cleanupTestProject(t *testing.T, projectID string) {
+	t.Helper()
+	if _, err := testPool.Exec(context.Background(), `DELETE FROM project WHERE id = $1`, projectID); err != nil {
+		t.Fatalf("cleanup test project: %v", err)
+	}
+}
+
+func assignIssueToProject(t *testing.T, issueID, projectID string) {
+	t.Helper()
+	if _, err := testPool.Exec(context.Background(), `UPDATE issue SET project_id = $1 WHERE id = $2`, projectID, issueID); err != nil {
+		t.Fatalf("assign issue to project: %v", err)
+	}
+}
+
+func createTestComment(t *testing.T, issueID, workspaceID, authorType, authorID, content string) string {
+	t.Helper()
+	var commentID string
+	if err := testPool.QueryRow(context.Background(), `
+		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type)
+		VALUES ($1, $2, $3, $4, $5, 'comment')
+		RETURNING id
+	`, issueID, workspaceID, authorType, authorID, content).Scan(&commentID); err != nil {
+		t.Fatalf("create test comment: %v", err)
+	}
+	return commentID
+}
+
+func createTestAgentTask(t *testing.T, issueID, agentID string, triggerCommentID *string) string {
+	t.Helper()
+	var taskID string
+	query := `
+		INSERT INTO agent_task_queue (
+			agent_id, runtime_id, issue_id, status, priority, created_at, started_at, trigger_comment_id
+		)
+		SELECT id, runtime_id, $1, 'running', 'medium', now() - interval '2 minute', now() - interval '1 minute', $2
+		FROM agent
+		WHERE id = $3
+		RETURNING id
+	`
+	if err := testPool.QueryRow(context.Background(), query, issueID, triggerCommentID, agentID).Scan(&taskID); err != nil {
+		t.Fatalf("create test agent task: %v", err)
+	}
+	return taskID
 }
 
 // createTestSubIssue inserts an issue with parent_issue_id set and returns its UUID.
@@ -489,24 +566,67 @@ func TestNotification_AssigneeChanged(t *testing.T) {
 	}
 }
 
-// TestNotification_TaskCompleted verifies that task:completed events do NOT
-// create inbox notifications (completion is visible from the status change).
+// TestNotification_TaskCompleted verifies that task:completed events still do
+// not create inbox items, but do send a Feishu webhook when configured.
 func TestNotification_TaskCompleted(t *testing.T) {
 	queries := db.New(testPool)
 	bus := newNotificationBus(t, queries)
 
 	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	projectID := createTestProject(t, "Feishu Card Project")
+	assignIssueToProject(t, issueID, projectID)
+	triggerCommentID := createTestComment(t, issueID, testWorkspaceID, "member", testUserID, "这是触发任务的问题内容")
 	t.Cleanup(func() {
 		cleanupInboxForIssue(t, issueID)
 		cleanupTestIssue(t, issueID)
+		cleanupTestProject(t, projectID)
 	})
 
 	// The agent ID (acting as system actor)
-	agentID := "00000000-0000-0000-0000-aaaaaaaaaaaa"
+	agentID := integrationTestAgentID(t)
+	taskID := createTestAgentTask(t, issueID, agentID, &triggerCommentID)
+	createTestComment(t, issueID, testWorkspaceID, "agent", agentID, "这是同步到卡片里的回复内容")
 
 	// Pre-add subscribers: creator and the agent
 	addTestSubscriber(t, issueID, "member", testUserID, "creator")
 	addTestSubscriber(t, issueID, "agent", agentID, "assignee")
+
+	var webhookBody string
+	webhookCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		webhookCalls++
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST webhook request, got %s", r.Method)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read webhook payload: %v", err)
+		}
+		webhookBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	prevWebhook := os.Getenv("MULTICA_FEISHU_WEBHOOK_URL")
+	prevAppURL := os.Getenv("MULTICA_APP_URL")
+	if err := os.Setenv("MULTICA_FEISHU_WEBHOOK_URL", server.URL); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("MULTICA_APP_URL", "https://multica.test"); err != nil {
+		t.Fatalf("set app url: %v", err)
+	}
+	t.Cleanup(func() {
+		if prevWebhook == "" {
+			_ = os.Unsetenv("MULTICA_FEISHU_WEBHOOK_URL")
+		} else {
+			_ = os.Setenv("MULTICA_FEISHU_WEBHOOK_URL", prevWebhook)
+		}
+		if prevAppURL == "" {
+			_ = os.Unsetenv("MULTICA_APP_URL")
+		} else {
+			_ = os.Setenv("MULTICA_APP_URL", prevAppURL)
+		}
+	})
 
 	bus.Publish(events.Event{
 		Type:        protocol.EventTaskCompleted,
@@ -514,7 +634,7 @@ func TestNotification_TaskCompleted(t *testing.T) {
 		ActorType:   "system",
 		ActorID:     "",
 		Payload: map[string]any{
-			"task_id":  "00000000-0000-0000-0000-bbbbbbbbbbbb",
+			"task_id":  taskID,
 			"agent_id": agentID,
 			"issue_id": issueID,
 			"status":   "completed",
@@ -526,6 +646,25 @@ func TestNotification_TaskCompleted(t *testing.T) {
 	if len(creatorItems) != 0 {
 		t.Fatalf("expected 0 inbox items for creator on task:completed, got %d", len(creatorItems))
 	}
+	if webhookCalls != 1 {
+		t.Fatalf("expected 1 Feishu webhook call, got %d", webhookCalls)
+	}
+	if !containsAll(webhookBody,
+		`"msg_type":"interactive"`,
+		`"项目名称"`,
+		`Feishu Card Project`,
+		`"Issue 名称"`,
+		"INTEGRATION-",
+		`#comment-`+triggerCommentID,
+		`这是同步到卡片里的回复内容`,
+		"Integration Test Agent",
+		`https://multica.test/integration-tests/issues/`+issueID,
+	) {
+		t.Fatalf("unexpected Feishu payload body: %q", webhookBody)
+	}
+	if strings.Contains(webhookBody, `"Issue 链接"`) || strings.Contains(webhookBody, `"问题链接"`) {
+		t.Fatalf("unexpected inline link labels in webhook body: %q", webhookBody)
+	}
 }
 
 // TestNotification_TaskFailed verifies that subscribers get a "task_failed"
@@ -535,15 +674,50 @@ func TestNotification_TaskFailed(t *testing.T) {
 	bus := newNotificationBus(t, queries)
 
 	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	triggerCommentID := createTestComment(t, issueID, testWorkspaceID, "member", testUserID, "失败任务对应的问题")
 	t.Cleanup(func() {
 		cleanupInboxForIssue(t, issueID)
 		cleanupTestIssue(t, issueID)
 	})
 
-	agentID := "00000000-0000-0000-0000-aaaaaaaaaaaa"
+	agentID := integrationTestAgentID(t)
+	taskID := createTestAgentTask(t, issueID, agentID, &triggerCommentID)
+	createTestComment(t, issueID, testWorkspaceID, "agent", agentID, "这是失败任务同步到卡片里的回复内容")
 
 	addTestSubscriber(t, issueID, "member", testUserID, "creator")
 	addTestSubscriber(t, issueID, "agent", agentID, "assignee")
+
+	var webhookBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read webhook payload: %v", err)
+		}
+		webhookBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	prevWebhook := os.Getenv("MULTICA_FEISHU_WEBHOOK_URL")
+	prevAppURL := os.Getenv("MULTICA_APP_URL")
+	if err := os.Setenv("MULTICA_FEISHU_WEBHOOK_URL", server.URL); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("MULTICA_APP_URL", "https://multica.test"); err != nil {
+		t.Fatalf("set app url: %v", err)
+	}
+	t.Cleanup(func() {
+		if prevWebhook == "" {
+			_ = os.Unsetenv("MULTICA_FEISHU_WEBHOOK_URL")
+		} else {
+			_ = os.Setenv("MULTICA_FEISHU_WEBHOOK_URL", prevWebhook)
+		}
+		if prevAppURL == "" {
+			_ = os.Unsetenv("MULTICA_APP_URL")
+		} else {
+			_ = os.Setenv("MULTICA_APP_URL", prevAppURL)
+		}
+	})
 
 	bus.Publish(events.Event{
 		Type:        protocol.EventTaskFailed,
@@ -551,7 +725,7 @@ func TestNotification_TaskFailed(t *testing.T) {
 		ActorType:   "system",
 		ActorID:     "",
 		Payload: map[string]any{
-			"task_id":  "00000000-0000-0000-0000-bbbbbbbbbbbb",
+			"task_id":  taskID,
 			"agent_id": agentID,
 			"issue_id": issueID,
 			"status":   "failed",
@@ -568,6 +742,28 @@ func TestNotification_TaskFailed(t *testing.T) {
 	if creatorItems[0].Severity != "action_required" {
 		t.Fatalf("expected severity 'action_required', got %q", creatorItems[0].Severity)
 	}
+	if !containsAll(webhookBody,
+		`"msg_type":"interactive"`,
+		"Task failed",
+		`#comment-`+triggerCommentID,
+		"INTEGRATION-",
+		`这是失败任务同步到卡片里的回复内容`,
+		"Integration Test Agent",
+	) {
+		t.Fatalf("unexpected Feishu payload body: %q", webhookBody)
+	}
+	if strings.Contains(webhookBody, `"Issue 链接"`) || strings.Contains(webhookBody, `"问题链接"`) {
+		t.Fatalf("unexpected inline link labels in webhook body: %q", webhookBody)
+	}
+}
+
+func containsAll(s string, parts ...string) bool {
+	for _, part := range parts {
+		if !strings.Contains(s, part) {
+			return false
+		}
+	}
+	return true
 }
 
 // TestNotification_PriorityChanged verifies that all subscribers except the actor
