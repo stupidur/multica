@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { ListTodo } from "lucide-react";
-import type { Agent, AgentTask } from "@multica/core/types";
+import type { Agent, AgentTask, Issue } from "@multica/core/types";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
-import { issueListOptions } from "@multica/core/issues/queries";
-import { useQuery } from "@tanstack/react-query";
+import { issueDetailOptions } from "@multica/core/issues/queries";
+import { useQueries } from "@tanstack/react-query";
 import { AppLink } from "../../../navigation";
 import { taskStatusConfig } from "../../config";
 
@@ -17,7 +17,6 @@ export function TasksTab({ agent }: { agent: Agent }) {
   const [loading, setLoading] = useState(true);
   const wsId = useWorkspaceId();
   const paths = useWorkspacePaths();
-  const { data: issues = [] } = useQuery(issueListOptions(wsId));
 
   useEffect(() => {
     setLoading(true);
@@ -27,6 +26,26 @@ export function TasksTab({ agent }: { agent: Agent }) {
       .catch(() => setTasks([]))
       .finally(() => setLoading(false));
   }, [agent.id]);
+
+  // Resolve each task's issue via its own cached detail query. A task's
+  // issue may or may not be in the paginated issue-list cache, so going
+  // through `issueDetailOptions` is the reliable lookup path (and it shares
+  // the same cache as the issue detail page).
+  const issueIds = useMemo(
+    () => Array.from(new Set(tasks.map((t) => t.issue_id))),
+    [tasks],
+  );
+  const issueQueries = useQueries({
+    queries: issueIds.map((id) => issueDetailOptions(wsId, id)),
+  });
+  const issueMap = useMemo(() => {
+    const map = new Map<string, Issue>();
+    issueQueries.forEach((q, i) => {
+      const id = issueIds[i]!;
+      if (q.data) map.set(id, q.data);
+    });
+    return map;
+  }, [issueQueries, issueIds]);
 
   if (loading) {
     return (
@@ -57,8 +76,6 @@ export function TasksTab({ agent }: { agent: Agent }) {
     if (aIsActive && bIsActive) return aActive - bActive;
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
-
-  const issueMap = new Map(issues.map((i) => [i.id, i]));
 
   return (
     <div className="space-y-4">

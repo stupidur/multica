@@ -238,6 +238,7 @@ export class ApiClient {
     if (params?.assignee_id) search.set("assignee_id", params.assignee_id);
     if (params?.assignee_ids?.length) search.set("assignee_ids", params.assignee_ids.join(","));
     if (params?.creator_id) search.set("creator_id", params.creator_id);
+    if (params?.project_id) search.set("project_id", params.project_id);
     if (params?.open_only) search.set("open_only", "true");
     return this.fetch(`/api/issues?${search}`);
   }
