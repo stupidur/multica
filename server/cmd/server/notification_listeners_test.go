@@ -757,6 +757,22 @@ func TestNotification_TaskFailed(t *testing.T) {
 	}
 }
 
+func TestTruncateForFeishuCard_NormalizesEscapedLineBreaks(t *testing.T) {
+	got := truncateForFeishuCard("第一行\\n第二行\\r\\n第三行", 1200)
+	want := "第一行\n第二行\n第三行"
+	if got != want {
+		t.Fatalf("expected normalized line breaks %q, got %q", want, got)
+	}
+}
+
+func TestTruncateForFeishuCard_PreservesActualLineBreaks(t *testing.T) {
+	got := truncateForFeishuCard("第一行\r\n第二行\r第三行\n第四行", 1200)
+	want := "第一行\n第二行\n第三行\n第四行"
+	if got != want {
+		t.Fatalf("expected preserved line breaks %q, got %q", want, got)
+	}
+}
+
 func containsAll(s string, parts ...string) bool {
 	for _, part := range parts {
 		if !strings.Contains(s, part) {
