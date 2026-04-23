@@ -311,6 +311,7 @@ func taskReplyFallbackContent(eventType string, task db.AgentTaskQueue) string {
 }
 
 func truncateForFeishuCard(content string, limit int) string {
+	content = normalizeFeishuLineBreaks(content)
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return "暂无同步回复内容"
@@ -320,6 +321,19 @@ func truncateForFeishuCard(content string, limit int) string {
 		return content
 	}
 	return string(runes[:limit]) + "\n…"
+}
+
+func normalizeFeishuLineBreaks(content string) string {
+	// Some comments are posted with literal "\n" sequences.
+	// Convert escaped line-break sequences so Feishu renders real newlines.
+	content = strings.NewReplacer(
+		`\r\n`, "\n",
+		`\n`, "\n",
+		`\r`, "\n",
+	).Replace(content)
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	return content
 }
 
 func buildFeishuTaskCard(taskCtx *feishuTaskContext) map[string]any {
