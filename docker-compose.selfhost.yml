@@ -38,6 +38,7 @@ services:
     volumes:
       - backend_uploads:/app/data/uploads
     environment:
+      MULTICA_FEISHU_WEBHOOK_URL: ${MULTICA_FEISHU_WEBHOOK_URL:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-multica}:${POSTGRES_PASSWORD:-multica}@postgres:5432/${POSTGRES_DB:-multica}?sslmode=disable
       PORT: "8080"
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
