@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -58,8 +57,10 @@ func allowedOrigins() []string {
 // NewRouter creates the fully-configured Chi router with all middleware and routes.
 // rdb is optional: when non-nil the runtime local-skill request stores are
 // swapped for Redis-backed implementations so multiple API nodes share the
-// same pending queue (required for multi-node prod). A nil rdb keeps the
-// default in-memory stores which are fine for single-node dev and tests.
+// same pending queue (required for multi-node prod). This should be a request
+// path Redis client, not the realtime relay's blocking read client. A nil rdb
+// keeps the default in-memory stores which are fine for single-node dev and
+// tests.
 func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client) chi.Router {
 	queries := db.New(pool)
 	emailSvc := service.NewEmailService()
@@ -88,6 +89,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analytics
 		h.LocalSkillListStore = handler.NewRedisLocalSkillListStore(rdb)
 		h.LocalSkillImportStore = handler.NewRedisLocalSkillImportStore(rdb)
 	}
+	health := newServerHealth(pool)
 
 	r := chi.NewRouter()
 
@@ -110,20 +112,21 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analytics
 		MaxAge:           300,
 	}))
 
-	// Health check
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	// Health / readiness checks
+	r.Get("/health", health.liveHandler)
+	r.Get("/readyz", health.readyHandler)
+	r.Get("/healthz", health.readyHandler)
 
 	// Realtime subsystem metrics — connection counts, slow-client evictions,
 	// and per-event-type send QPS counters. Exposed as JSON so it can be
 	// scraped by ops or surfaced in the admin UI without adding a Prometheus
 	// dependency. See MUL-1138 (Phase 0).
-	r.Get("/health/realtime", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(realtime.M.Snapshot())
-	})
+	//
+	// Access is restricted (MUL-1342): when REALTIME_METRICS_TOKEN is set,
+	// callers must present it via Authorization: Bearer <token>. When the
+	// env var is unset the handler only serves loopback callers so local
+	// dev keeps working without exposing the metrics on a public listener.
+	r.Get("/health/realtime", realtimeMetricsHandler(os.Getenv("REALTIME_METRICS_TOKEN")))
 
 	// WebSocket
 	mc := &membershipChecker{queries: queries}
@@ -279,11 +282,25 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analytics
 					r.Delete("/reactions", h.RemoveIssueReaction)
 					r.Get("/attachments", h.ListAttachments)
 					r.Get("/children", h.ListChildIssues)
+					r.Get("/labels", h.ListLabelsForIssue)
+					r.Post("/labels", h.AttachLabel)
+					r.Delete("/labels/{labelId}", h.DetachLabel)
 				})
 			})
 
 			// Task messages (user-facing, not daemon auth)
 			r.Get("/api/tasks/{taskId}/messages", h.ListTaskMessagesByUser)
+
+			// Labels
+			r.Route("/api/labels", func(r chi.Router) {
+				r.Get("/", h.ListLabels)
+				r.Post("/", h.CreateLabel)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.GetLabel)
+					r.Put("/", h.UpdateLabel)
+					r.Delete("/", h.DeleteLabel)
+				})
+			})
 
 			// Projects
 			r.Route("/api/projects", func(r chi.Router) {
