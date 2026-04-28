@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 var testHandler *Handler
@@ -327,6 +329,92 @@ func TestIssueCRUD(t *testing.T) {
 	testHandler.GetIssue(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("GetIssue after delete: expected 404, got %d", w.Code)
+	}
+}
+
+// TestDeleteIssueByIdentifier guards against #1661 — DELETE /api/issues/{id}
+// must actually delete the row when the path segment is a human-readable
+// identifier ("HAN-42") rather than a UUID. Before the PR #1680 + MUL-1410
+// refactor, parseUUID(rawString) silently produced a zero UUID, the SQL
+// DELETE matched nothing, and the handler still returned 204.
+//
+// Also asserts the issue:deleted WS event payload carries the resolved UUID,
+// not the raw identifier — frontend caches key by UUID and would otherwise
+// leave stale entries on other clients after an identifier-path delete.
+func TestDeleteIssueByIdentifier(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":    "Issue to delete by identifier",
+		"status":   "todo",
+		"priority": "medium",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	json.NewDecoder(w.Body).Decode(&created)
+	if created.Identifier == "" {
+		t.Fatalf("CreateIssue: expected identifier to be populated, got empty")
+	}
+
+	// Capture the issue:deleted event payload via the bus.
+	gotPayload := make(chan map[string]any, 1)
+	testHandler.Bus.Subscribe(protocol.EventIssueDeleted, func(e events.Event) {
+		if payload, ok := e.Payload.(map[string]any); ok {
+			select {
+			case gotPayload <- payload:
+			default:
+			}
+		}
+	})
+
+	// Delete using the human-readable identifier (e.g. "HAN-1") rather than the UUID.
+	w = httptest.NewRecorder()
+	req = newRequest("DELETE", "/api/issues/"+created.Identifier, nil)
+	req = withURLParam(req, "id", created.Identifier)
+	testHandler.DeleteIssue(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("DeleteIssue by identifier: expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify the row is actually gone — the silent-data-loss bug would have
+	// returned 204 here too, but the row would still exist.
+	var count int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM issue WHERE id = $1`, created.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count query: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("DeleteIssue by identifier returned 204 but row still exists (count=%d) — silent-data-loss regression", count)
+	}
+
+	// Event payload must carry the resolved UUID, not the identifier string.
+	select {
+	case payload := <-gotPayload:
+		issueID, _ := payload["issue_id"].(string)
+		if issueID != created.ID {
+			t.Fatalf("issue:deleted event payload issue_id = %q; want resolved UUID %q (must not leak identifier %q)", issueID, created.ID, created.Identifier)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive issue:deleted event within timeout")
+	}
+}
+
+// TestDeleteIssueRejectsInvalidUUID verifies that a path segment that is
+// neither a valid UUID nor a valid identifier returns 404 (not 204) — the
+// handler must never silently succeed on malformed input.
+func TestDeleteIssueRejectsInvalidUUID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("DELETE", "/api/issues/not-a-uuid-or-identifier", nil)
+	req = withURLParam(req, "id", "not-a-uuid-or-identifier")
+	testHandler.DeleteIssue(w, req)
+	if w.Code == http.StatusNoContent {
+		t.Fatalf("DeleteIssue with invalid id: must not return 204; got %d", w.Code)
+	}
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("DeleteIssue with invalid id: expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -641,6 +729,31 @@ func TestCreateIssueRejectsMalformedAssigneeID(t *testing.T) {
 	}
 }
 
+func TestCreateIssueRejectsMalformedAttachmentIDBeforeWrite(t *testing.T) {
+	var before int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM issue WHERE workspace_id = $1`, testWorkspaceID).Scan(&before); err != nil {
+		t.Fatalf("count issues before: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":          "Malformed attachment issue",
+		"attachment_ids": []string{"not-a-uuid"},
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateIssue: expected 400 for malformed attachment_ids, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var after int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM issue WHERE workspace_id = $1`, testWorkspaceID).Scan(&after); err != nil {
+		t.Fatalf("count issues after: %v", err)
+	}
+	if after != before {
+		t.Fatalf("CreateIssue: malformed attachment_ids should not create issue, count before=%d after=%d", before, after)
+	}
+}
+
 // TestUpdateIssueRejectsMalformedAssigneeID is the equivalent for the update
 // path, where the same parseUUID-shaped gap existed on a previously-unassigned
 // issue.
@@ -787,6 +900,283 @@ func TestCommentCRUD(t *testing.T) {
 	req = newRequest("DELETE", "/api/issues/"+issueID, nil)
 	req = withURLParam(req, "id", issueID)
 	testHandler.DeleteIssue(w, req)
+}
+
+func TestCreateCommentRejectsMalformedParentID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Comment malformed parent issue",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	json.NewDecoder(w.Body).Decode(&issue)
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", "/api/issues/"+issue.ID+"/comments", map[string]any{
+		"content":   "bad parent",
+		"parent_id": "not-a-uuid",
+	})
+	req = withURLParam(req, "id", issue.ID)
+	testHandler.CreateComment(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateComment: expected 400 for malformed parent_id, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest("DELETE", "/api/issues/"+issue.ID, nil)
+	req = withURLParam(req, "id", issue.ID)
+	testHandler.DeleteIssue(w, req)
+}
+
+func TestGetChatSessionRejectsMalformedSessionID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("GET", "/api/chat/sessions/not-a-uuid", nil)
+	req = withURLParam(req, "sessionId", "not-a-uuid")
+	testHandler.GetChatSession(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("GetChatSession: expected 400 for malformed sessionId, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateAutopilotRejectsMalformedAssigneeID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/autopilots", map[string]any{
+		"title":          "Malformed assignee autopilot",
+		"assignee_id":    "not-a-uuid",
+		"execution_mode": "run_only",
+	})
+	testHandler.CreateAutopilot(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateAutopilot: expected 400 for malformed assignee_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateAutopilotRejectsMalformedID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/autopilots/not-a-uuid", map[string]any{
+		"title": "Malformed autopilot id",
+	})
+	req = withURLParam(req, "id", "not-a-uuid")
+	testHandler.UpdateAutopilot(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateAutopilot: expected 400 for malformed id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateAgentRejectsMalformedAgentID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/agents/not-a-uuid", map[string]any{
+		"name": "Malformed agent id",
+	})
+	req = withURLParam(req, "id", "not-a-uuid")
+	testHandler.UpdateAgent(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateAgent: expected 400 for malformed id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateAgentRejectsMalformedRuntimeID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/agents", map[string]any{
+		"name":       "Malformed runtime agent",
+		"runtime_id": "not-a-uuid",
+	})
+	testHandler.CreateAgent(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateAgent: expected 400 for malformed runtime_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateAgentRejectsMalformedRuntimeID(t *testing.T) {
+	agentID := createHandlerTestAgent(t, "Handler Malformed Runtime Update", nil)
+
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/agents/"+agentID, map[string]any{
+		"runtime_id": "not-a-uuid",
+	})
+	req = withURLParam(req, "id", agentID)
+	testHandler.UpdateAgent(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateAgent: expected 400 for malformed runtime_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreatePinRejectsMalformedItemID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/pins", map[string]any{
+		"item_type": "issue",
+		"item_id":   "not-a-uuid",
+	})
+	testHandler.CreatePin(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreatePin: expected 400 for malformed item_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateWorkspaceRejectsMalformedID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/workspaces/not-a-uuid", map[string]any{
+		"name": "Malformed workspace id",
+	})
+	req = withURLParam(req, "id", "not-a-uuid")
+	testHandler.UpdateWorkspace(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateWorkspace: expected 400 for malformed id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateMemberRejectsMalformedMemberID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("PATCH", "/api/workspaces/"+testWorkspaceID+"/members/not-a-uuid", map[string]any{
+		"role": "member",
+	})
+	req = withURLParams(req, "id", testWorkspaceID, "memberId", "not-a-uuid")
+	testHandler.UpdateMember(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateMember: expected 400 for malformed memberId, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRevokeInvitationRejectsMalformedInvitationID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("DELETE", "/api/workspaces/"+testWorkspaceID+"/invitations/not-a-uuid", nil)
+	req = withURLParams(req, "id", testWorkspaceID, "invitationId", "not-a-uuid")
+	testHandler.RevokeInvitation(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("RevokeInvitation: expected 400 for malformed invitationId, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetMyInvitationRejectsMalformedID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("GET", "/api/invitations/not-a-uuid", nil)
+	req = withURLParam(req, "id", "not-a-uuid")
+	testHandler.GetMyInvitation(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("GetMyInvitation: expected 400 for malformed id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAddReactionRejectsMalformedCommentID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/comments/not-a-uuid/reactions", map[string]any{
+		"emoji": "thumbs_up",
+	})
+	req = withURLParam(req, "commentId", "not-a-uuid")
+	testHandler.AddReaction(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("AddReaction: expected 400 for malformed commentId, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateCommentRejectsMalformedCommentID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/comments/not-a-uuid", map[string]any{
+		"content": "updated",
+	})
+	req = withURLParam(req, "commentId", "not-a-uuid")
+	testHandler.UpdateComment(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateComment: expected 400 for malformed commentId, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMarkInboxReadRejectsMalformedItemID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/inbox/not-a-uuid/read", nil)
+	req = withURLParam(req, "id", "not-a-uuid")
+	testHandler.MarkInboxRead(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("MarkInboxRead: expected 400 for malformed id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRevokePersonalAccessTokenRejectsMalformedID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("DELETE", "/api/tokens/not-a-uuid", nil)
+	req = withURLParam(req, "id", "not-a-uuid")
+	testHandler.RevokePersonalAccessToken(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("RevokePersonalAccessToken: expected 400 for malformed id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRequestBodyUUIDFieldsRejectMalformed(t *testing.T) {
+	tests := []struct {
+		name   string
+		req    *http.Request
+		handle func(http.ResponseWriter, *http.Request)
+	}{
+		{
+			name: "daemon register workspace_id",
+			req: newRequest("POST", "/api/daemon/register", map[string]any{
+				"workspace_id": "not-a-uuid",
+				"daemon_id":    "daemon-malformed-workspace",
+				"runtimes": []map[string]any{
+					{"name": "codex", "type": "codex", "status": "online"},
+				},
+			}),
+			handle: testHandler.DaemonRegister,
+		},
+		{
+			name: "import starter content workspace_id",
+			req: newRequest("POST", "/api/onboarding/starter-content/import", map[string]any{
+				"workspace_id": "not-a-uuid",
+				"project": map[string]any{
+					"title": "Getting Started",
+				},
+			}),
+			handle: testHandler.ImportStarterContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			tt.handle(w, tt.req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("%s: expected 400 for malformed body UUID, got %d: %s", tt.name, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestDaemonDeregisterRejectsMalformedRuntimeID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/daemon/deregister", map[string]any{
+		"runtime_ids": []string{"not-a-uuid"},
+	})
+	testHandler.DaemonDeregister(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("DaemonDeregister: expected 400 for malformed runtime_ids, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetIssueGCCheckRejectsMalformedIssueID(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("GET", "/api/daemon/issues/not-a-uuid/gc-check", nil)
+	req = withURLParam(req, "issueId", "not-a-uuid")
+	testHandler.GetIssueGCCheck(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("GetIssueGCCheck: expected 400 for malformed issueId, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSetAgentSkillsRejectsMalformedSkillID(t *testing.T) {
+	agentID := createHandlerTestAgent(t, "Handler Malformed Skill Assignment", nil)
+
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/agents/"+agentID+"/skills", map[string]any{
+		"skill_ids": []string{"not-a-uuid"},
+	})
+	req = withURLParam(req, "id", agentID)
+	testHandler.SetAgentSkills(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("SetAgentSkills: expected 400 for malformed skill_ids, got %d: %s", w.Code, w.Body.String())
+	}
 }
 
 func TestAgentCRUD(t *testing.T) {
@@ -1038,7 +1428,7 @@ func TestSendCodeDbError(t *testing.T) {
 	// We can't easily mock the DB here without changing architecture,
 	// but we can simulate a DB error by closing the pool temporarily or
 	// using a cancelled context if the query respects it.
-	
+
 	// Create a handler with a "broken" queries object is hard because it's a struct.
 	// Instead, let's use a context that is already cancelled.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1053,13 +1443,13 @@ func TestSendCodeDbError(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	testHandler.SendCode(w, req)
-	
+
 	// If the DB query respects the cancelled context, it should return an error.
 	// pgx usually returns context.Canceled which is not what isNotFound checks for.
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("SendCode (db error): expected 500, got %d: %s", w.Code, w.Body.String())
 	}
-	
+
 	var resp map[string]string
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["error"] != "failed to lookup user" {

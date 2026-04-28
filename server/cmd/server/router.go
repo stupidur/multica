@@ -481,12 +481,11 @@ func (pr *patResolver) ResolveToken(ctx context.Context, token string) (string, 
 	return util.UUIDToString(pat.UserID), true
 }
 
+// parseUUID is a thin alias for util.MustParseUUID. Call sites here are all
+// internal round-trips of DB-sourced UUIDs (e.g. issue.ID, e.ActorID), so an
+// invalid value indicates a programming error and should panic loudly.
 func parseUUID(s string) pgtype.UUID {
-	var u pgtype.UUID
-	if err := u.Scan(s); err != nil {
-		return pgtype.UUID{}
-	}
-	return u
+	return util.MustParseUUID(s)
 }
 
 func splitAndTrim(s string) []string {
