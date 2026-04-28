@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
@@ -161,6 +162,8 @@ func main() {
 	bus := events.New()
 	hub := realtime.NewHub()
 	go hub.Run()
+	daemonHub := daemonws.NewHub()
+	var daemonWakeup service.TaskWakeupNotifier = daemonHub
 
 	// MUL-1138: when REDIS_URL is set, route fanout through a Redis relay so
 	// multiple API nodes can deliver each other's events. Without it the hub
@@ -204,15 +207,21 @@ func main() {
 			case "legacy":
 				relayReadRedis = newNamedRedisClient(opts, "realtime-read")
 				relay = realtime.NewRedisRelayWithClients(hub, relayWriteRedis, relayReadRedis)
+				slog.Info("daemon websocket wakeup: Redis fanout disabled in legacy realtime relay mode")
 			case "dual":
 				shardedReadRedis = newNamedRedisClient(opts, "realtime-read-sharded")
 				legacyReadRedis = newNamedRedisClient(opts, "realtime-read-legacy")
 				sharded := realtime.NewShardedStreamRelay(hub, relayWriteRedis, shardedReadRedis, relayConfig)
+				sharded.SetDaemonRuntimeDeliverer(daemonHub)
 				legacy := realtime.NewRedisRelayWithClients(hub, relayWriteRedis, legacyReadRedis)
 				relay = realtime.NewMirroredRelay(sharded, legacy)
+				daemonWakeup = daemonws.NewRelayNotifier(daemonHub, sharded)
 			default:
 				relayReadRedis = newNamedRedisClient(opts, "realtime-read")
-				relay = realtime.NewShardedStreamRelay(hub, relayWriteRedis, relayReadRedis, relayConfig)
+				sharded := realtime.NewShardedStreamRelay(hub, relayWriteRedis, relayReadRedis, relayConfig)
+				sharded.SetDaemonRuntimeDeliverer(daemonHub)
+				relay = sharded
+				daemonWakeup = daemonws.NewRelayNotifier(daemonHub, sharded)
 			}
 			relay.Start(relayCtx)
 			broadcaster = realtime.NewDualWriteBroadcaster(hub, relay)
@@ -253,6 +262,7 @@ func main() {
 		metricsRegistry := obsmetrics.NewRegistry(obsmetrics.RegistryOptions{
 			Pool:     pool,
 			Realtime: realtime.M,
+			DaemonWS: daemonws.M,
 			Version:  version,
 			Commit:   commit,
 		})
@@ -267,7 +277,9 @@ func main() {
 	}
 
 	r := NewRouterWithOptions(pool, hub, bus, analyticsClient, storeRedis, RouterOptions{
-		HTTPMetrics: httpMetrics,
+		HTTPMetrics:  httpMetrics,
+		DaemonHub:    daemonHub,
+		DaemonWakeup: daemonWakeup,
 	})
 
 	srv := &http.Server{
@@ -278,7 +290,7 @@ func main() {
 	// Start background workers.
 	sweepCtx, sweepCancel := context.WithCancel(context.Background())
 	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
-	taskSvc := service.NewTaskService(queries, pool, hub, bus)
+	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	autopilotSvc := service.NewAutopilotService(queries, pool, bus, taskSvc)
 	registerAutopilotListeners(bus, autopilotSvc)
 
