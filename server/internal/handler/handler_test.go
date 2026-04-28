@@ -1543,7 +1543,94 @@ func TestVerifyCode(t *testing.T) {
 	}
 }
 
+func createVerificationCodeForTest(t *testing.T, email, code string) {
+	t.Helper()
+
+	_, err := testPool.Exec(context.Background(), `
+		INSERT INTO verification_code (email, code, expires_at)
+		VALUES ($1, $2, now() + interval '10 minutes')
+	`, email, code)
+	if err != nil {
+		t.Fatalf("create verification code: %v", err)
+	}
+}
+
+func TestVerifyCodeRejectsDevCodeUnlessExplicitlyConfigured(t *testing.T) {
+	t.Setenv(devVerificationCodeEnv, "")
+	t.Setenv("APP_ENV", "")
+
+	const email = "dev-code-disabled-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
+	})
+
+	createVerificationCodeForTest(t, email, "123456")
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "888888"})
+	req := httptest.NewRequest("POST", "/auth/verify-code", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.VerifyCode(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("VerifyCode (disabled dev code): expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestVerifyCodeAcceptsConfiguredDevCodeOutsideProduction(t *testing.T) {
+	t.Setenv(devVerificationCodeEnv, "888888")
+	t.Setenv("APP_ENV", "development")
+
+	const email = "dev-code-enabled-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
+		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	createVerificationCodeForTest(t, email, "123456")
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "888888"})
+	req := httptest.NewRequest("POST", "/auth/verify-code", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.VerifyCode(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("VerifyCode (enabled dev code): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestVerifyCodeRejectsConfiguredDevCodeInProduction(t *testing.T) {
+	t.Setenv(devVerificationCodeEnv, "888888")
+	t.Setenv("APP_ENV", "production")
+
+	const email = "dev-code-production-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
+	})
+
+	createVerificationCodeForTest(t, email, "123456")
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "888888"})
+	req := httptest.NewRequest("POST", "/auth/verify-code", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.VerifyCode(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("VerifyCode (production dev code): expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestVerifyCodeWrongCode(t *testing.T) {
+	t.Setenv(devVerificationCodeEnv, "")
+
 	const email = "wrong-code-test@multica.ai"
 	ctx := context.Background()
 
@@ -1572,6 +1659,8 @@ func TestVerifyCodeWrongCode(t *testing.T) {
 }
 
 func TestVerifyCodeBruteForceProtection(t *testing.T) {
+	t.Setenv(devVerificationCodeEnv, "")
+
 	const email = "bruteforce-test@multica.ai"
 	ctx := context.Background()
 
