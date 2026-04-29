@@ -392,12 +392,25 @@ function TaskRow({
     }
   };
 
+  // Terminal states never use active wording. The server links the new
+  // issue back to a quick-create task on completion (so most successful
+  // rows transition to kind=direct on next refetch), but rows whose link
+  // write failed — or whose agent never created the issue at all — would
+  // otherwise sit on "Creating issue" forever.
+  const isTerminalStatus =
+    task.status === "completed" ||
+    task.status === "failed" ||
+    task.status === "cancelled";
   const sourceFallback = !hasIssue
-    ? task.chat_session_id
-      ? "Chat session"
-      : task.autopilot_run_id
-        ? "Autopilot run"
-        : "Untracked"
+    ? task.kind === "quick_create"
+      ? isTerminalStatus
+        ? "Quick create"
+        : "Creating issue"
+      : task.chat_session_id
+        ? "Chat session"
+        : task.autopilot_run_id
+          ? "Autopilot run"
+          : "Untracked"
     : null;
 
   // Origin marker — issue / chat / autopilot / untracked. The issue
