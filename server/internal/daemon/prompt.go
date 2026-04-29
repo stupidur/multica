@@ -32,21 +32,22 @@ func BuildPrompt(task Task) string {
 
 // buildQuickCreatePrompt constructs a prompt for quick-create tasks. The
 // user typed a single natural-language sentence in the create-issue modal;
-// the agent's only job is to translate it into one `multica issue create`
-// CLI invocation. No issue exists yet, so the agent must NOT call
-// `multica issue get` or attempt to comment — there's nothing to read or
-// reply to.
+// the agent's job is to translate it into one `multica issue create` CLI
+// invocation, using its judgment to decide whether fetching referenced URLs
+// would produce a better issue. No issue exists yet, so the agent must NOT
+// call `multica issue get` or attempt to comment — there's nothing to read
+// or reply to.
 func buildQuickCreatePrompt(task Task) string {
 	var b strings.Builder
 	b.WriteString("You are running as a quick-create assistant for a Multica workspace.\n\n")
-	b.WriteString("A user pressed the quick-create shortcut and typed a one-line description. There is NO existing issue. Your only job is to translate the description into a single `multica issue create` command and run it.\n\n")
+	b.WriteString("A user pressed the quick-create shortcut and typed a one-line description. There is NO existing issue. Your job is to create a well-formed issue from the user's input with a single `multica issue create` command.\n\n")
 	fmt.Fprintf(&b, "User input:\n> %s\n\n", task.QuickCreatePrompt)
 	b.WriteString("Field rules:\n")
-	b.WriteString("- title: required. A short, imperative summary extracted from the user input (e.g. \"fix inbox loading\"). Strip filler words.\n")
-	b.WriteString("- description: optional. Include only if the user supplied detail beyond the title; otherwise omit. Never echo the title here.\n")
-	b.WriteString("- priority: one of `urgent`, `high`, `medium`, `low`, or omit. Map P0/P1 → urgent/high; \"asap\"/\"紧急\" → urgent; \"低优先级\" → low. If unspecified, omit.\n")
+	b.WriteString("- title: required. A concise but semantically rich summary that lets a reader understand what the issue is about at a glance. If the user input references external resources (PRs, issues, URLs, etc.), use your judgment to decide whether fetching the resource would produce a meaningfully better title — if so, fetch it and incorporate the relevant context. For example, \"review PR #123\" is much less useful than \"Review PR #123: Refactor auth module to OAuth2\". Strip filler words but preserve key semantic information.\n")
+	b.WriteString("- description: always provide a rich, self-contained description. The created issue will be picked up and executed by an agent — the more accurate context the description contains, the better the agent will understand and execute the task. Use your judgment to gather context: if the user input contains URLs or references, fetch them and summarize the relevant parts. Spell out what needs to be done, what the background is, and any constraints or details that would help the executing agent avoid misunderstandings. Never echo the title here.\n")
+	b.WriteString("- priority: one of `urgent`, `high`, `medium`, `low`, or omit. Map P0/P1 → urgent/high; \"asap\" → urgent. If unspecified, omit.\n")
 	b.WriteString("- assignee:\n")
-	b.WriteString("    - When the user names someone (\"分给 X\" / \"assign to X\" / \"@X\"), call `multica workspace members --output json` and find the matching member by display name (case-insensitive substring match is fine). On a clean match, pass `--assignee <name>`. On no match or ambiguous match, do NOT pass `--assignee` — instead append a final line to the description: `未识别 assignee: X`.\n")
+	b.WriteString("    - When the user names someone (\"assign to X\" / \"@X\"), call `multica workspace members --output json` and find the matching member by display name (case-insensitive substring match is fine). On a clean match, pass `--assignee <name>`. On no match or ambiguous match, do NOT pass `--assignee` — instead append a final line to the description: `Unrecognized assignee: X`.\n")
 	agentName := ""
 	if task.Agent != nil {
 		agentName = task.Agent.Name
