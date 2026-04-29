@@ -277,6 +277,12 @@ export function InboxPage() {
         // longer exists.
         setSelectedKey("");
       }}
+      onDone={() => {
+        setSelectedKey("");
+        archiveMutation.mutate(selected.id, {
+          onError: () => toast.error("Failed to archive"),
+        });
+      }}
     />
   ) : selected ? (
     <div className="p-6">
