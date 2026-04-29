@@ -13,15 +13,16 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/multica-ai/multica/server/internal/util"
 )
 
 // resolveTextFlag picks between a `--<name>` flag value and a paired
 // `--<name>-stdin` flag, mirroring the existing `--content` / `--content-stdin`
 // pattern. It returns the resolved string and an error when both are set or
-// stdin is requested but produces no body. The resulting text is returned
-// verbatim — callers decide whether to apply unescapeFlagText to the inline
-// flag form (and never to the stdin form, which already preserves literal
-// backslashes).
+// stdin is requested but produces no body. Inline flag values are passed
+// through util.UnescapeBackslashEscapes so bash-double-quoted `\n` becomes a
+// real newline; stdin bodies are returned verbatim so literal backslashes
+// survive intact.
 func resolveTextFlag(cmd *cobra.Command, flagName string) (string, bool, error) {
 	stdinFlag := flagName + "-stdin"
 	useStdin, _ := cmd.Flags().GetBool(stdinFlag)
@@ -43,49 +44,7 @@ func resolveTextFlag(cmd *cobra.Command, flagName string) (string, bool, error) 
 	if inline == "" {
 		return "", false, nil
 	}
-	return unescapeFlagText(inline), true, nil
-}
-
-// unescapeFlagText decodes the common backslash escape sequences (\n, \r, \t,
-// \\) in a free-form string flag value. Shells like bash do not expand these
-// inside double quotes, so an LLM agent that emits
-// `--content "para1\n\npara2"` ends up sending the literal 4-char sequence to
-// the CLI and then to storage, where it renders as text rather than as line
-// breaks. Decoding here makes the flag behave the way callers intuit; users
-// who genuinely need a literal backslash-n can write `\\n` or pipe the body
-// via `--content-stdin` / `--description-stdin`, which bypass this path
-// entirely.
-func unescapeFlagText(s string) string {
-	if !strings.ContainsRune(s, '\\') {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\\' && i+1 < len(s) {
-			switch s[i+1] {
-			case 'n':
-				b.WriteByte('\n')
-				i++
-				continue
-			case 'r':
-				b.WriteByte('\r')
-				i++
-				continue
-			case 't':
-				b.WriteByte('\t')
-				i++
-				continue
-			case '\\':
-				b.WriteByte('\\')
-				i++
-				continue
-			}
-		}
-		b.WriteByte(c)
-	}
-	return b.String()
+	return util.UnescapeBackslashEscapes(inline), true, nil
 }
 
 var issueCmd = &cobra.Command{
