@@ -1191,6 +1191,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 	taskStart := time.Now()
 
 	var customArgs []string
+	extraArgs := defaultArgsForProvider(d.cfg, provider)
 	var mcpConfig json.RawMessage
 	if task.Agent != nil {
 		customArgs = task.Agent.CustomArgs
@@ -1218,6 +1219,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 		Timeout:                   d.cfg.AgentTimeout,
 		SemanticInactivityTimeout: d.cfg.CodexSemanticInactivityTimeout,
 		ResumeSessionID:           task.PriorSessionID,
+		ExtraArgs:                 extraArgs,
 		CustomArgs:                customArgs,
 		McpConfig:                 mcpConfig,
 	}
@@ -1641,4 +1643,17 @@ func isBlockedEnvKey(key string) bool {
 		return true
 	}
 	return false
+}
+
+func defaultArgsForProvider(cfg Config, provider string) []string {
+	var args []string
+	switch provider {
+	case "claude":
+		args = cfg.ClaudeArgs
+	case "codex":
+		args = cfg.CodexArgs
+	default:
+		return nil
+	}
+	return append([]string(nil), args...)
 }
