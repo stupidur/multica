@@ -118,6 +118,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	daemonTokenCache := auth.NewDaemonTokenCache(rdb)
 	h.PATCache = patCache
 	h.DaemonTokenCache = daemonTokenCache
+
+	// Wire WS heartbeat after stores are finalized so the WS path uses the
+	// same (possibly Redis-backed) stores as the HTTP path.
+	daemonHub.SetHeartbeatHandler(h.HandleDaemonWSHeartbeat)
 	health := newServerHealth(pool)
 
 	r := chi.NewRouter()
