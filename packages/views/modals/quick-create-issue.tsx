@@ -37,6 +37,7 @@ import {
   useFileDropZone,
   FileDropOverlay,
 } from "../editor";
+import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 
 // AgentCreatePanel — agent-mode body of the create-issue dialog. Renders
 // only the inner content; the surrounding `<Dialog>` AND `<DialogContent>`
@@ -334,7 +335,13 @@ export function AgentCreatePanel({
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t shrink-0">
-          <span className="text-xs text-muted-foreground">⌘↵ to submit</span>
+          <div className="flex items-center gap-1.5">
+            <FileUploadButton
+              size="sm"
+              onSelect={(file) => editorRef.current?.uploadFile(file)}
+            />
+            <span className="text-xs text-muted-foreground">⌘↵ to submit</span>
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
