@@ -69,6 +69,14 @@ INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, 
 VALUES ($1, $2, $3, 'queued', $4, sqlc.narg(trigger_comment_id))
 RETURNING *;
 
+-- name: CreateQuickCreateTask :one
+-- Quick-create tasks have no issue / chat / autopilot link; the entire job
+-- description (prompt, requester, workspace) lives in context JSONB. The
+-- daemon detects this variant via context.type == "quick_create".
+INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, context)
+VALUES ($1, $2, NULL, 'queued', $3, $4)
+RETURNING *;
+
 -- name: CreateRetryTask :one
 -- Clones a parent task into a fresh queued attempt. Carries forward the
 -- agent's resume context (session_id/work_dir) so the child can continue
@@ -142,6 +150,10 @@ WHERE id = $1;
 -- already dispatched or running. This allows different agents to work on the same
 -- issue in parallel while preventing a single agent from running duplicate tasks.
 -- Chat tasks (issue_id IS NULL) use chat_session_id for serialization instead.
+-- Quick-create tasks have no issue / chat / autopilot link, so they serialize on
+-- "any other quick-create-shaped task" (all four FKs NULL) for the same agent —
+-- otherwise a user mashing the create button could fire concurrent quick-creates
+-- whose completion lookup would race over "most recent issue by this agent".
 UPDATE agent_task_queue
 SET status = 'dispatched', dispatched_at = now()
 WHERE id = (
@@ -154,6 +166,14 @@ WHERE id = (
             AND (
               (atq.issue_id IS NOT NULL AND active.issue_id = atq.issue_id)
               OR (atq.chat_session_id IS NOT NULL AND active.chat_session_id = atq.chat_session_id)
+              OR (
+                atq.issue_id IS NULL
+                AND atq.chat_session_id IS NULL
+                AND atq.autopilot_run_id IS NULL
+                AND active.issue_id IS NULL
+                AND active.chat_session_id IS NULL
+                AND active.autopilot_run_id IS NULL
+              )
             )
       )
     ORDER BY atq.priority DESC, atq.created_at ASC

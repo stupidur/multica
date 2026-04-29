@@ -142,6 +142,27 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("- If asked to perform actions (create issues, update status, etc.), use the appropriate CLI commands\n")
 		b.WriteString("- If the task requires code changes, use `multica repo checkout <url>` to get the code first\n")
 		b.WriteString("- Keep responses concise and direct\n\n")
+	} else if ctx.QuickCreatePrompt != "" {
+		// Quick-create task: no issue exists yet. The agent's only job is to
+		// translate one line of natural language into a single
+		// `multica issue create` call. Suppress the default assignment
+		// workflow that would tell the agent to call `multica issue get` /
+		// `multica issue status` / `multica issue comment add` against an
+		// empty IssueID — those would either error or silently target the
+		// wrong issue.
+		b.WriteString("**This task was triggered by quick-create.** There is NO existing Multica issue. Translate the user's input into a single `multica issue create` invocation and exit.\n\n")
+		fmt.Fprintf(&b, "User input:\n> %s\n\n", ctx.QuickCreatePrompt)
+		b.WriteString("Field rules:\n")
+		b.WriteString("- title: required, short imperative summary extracted from the user input.\n")
+		b.WriteString("- description: optional; only include if the user supplied detail beyond the title.\n")
+		b.WriteString("- priority: one of `urgent`, `high`, `medium`, `low`, or omit. Map P0/P1 → urgent/high; \"asap\"/\"紧急\" → urgent; \"低优先级\" → low.\n")
+		b.WriteString("- assignee: when the user says \"分给 X\" / \"assign to X\" / \"@X\", call `multica workspace members --output json` and find the matching member. On clean match, pass `--assignee <name>`. On no/ambiguous match, OMIT `--assignee` and append a final line to the description: `未识别 assignee: X`.\n")
+		b.WriteString("- project / status: omit (defaults apply).\n\n")
+		b.WriteString("Output rules:\n")
+		b.WriteString("- Run exactly one `multica issue create` invocation.\n")
+		b.WriteString("- After it succeeds, print exactly one line: `Created MUL-<n>: <title>` and exit.\n")
+		b.WriteString("- Do NOT call `multica issue get`, `multica issue status`, or `multica issue comment add` for this task — there is no issue to query, transition, or comment on. The platform writes the user's success/failure inbox notification automatically based on whether `multica issue create` succeeded.\n")
+		b.WriteString("- If the CLI returns an error, exit with that error as the only output. Do not retry.\n\n")
 	} else if ctx.AutopilotRunID != "" {
 		// Autopilot run_only task: no issue exists, so the agent must not
 		// follow the assignment/comment workflow.
@@ -246,9 +267,15 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("do NOT attempt to work around it. Instead, post a comment mentioning the workspace owner to request the missing functionality.\n\n")
 
 	b.WriteString("## Output\n\n")
-	if ctx.AutopilotRunID != "" {
+	switch {
+	case ctx.AutopilotRunID != "":
 		b.WriteString("This is a run-only autopilot task, so there may be no issue comment to post. Your final assistant output is captured automatically as the autopilot run result. Keep it concise and state the outcome.\n")
-	} else {
+	case ctx.QuickCreatePrompt != "":
+		b.WriteString("This is a quick-create task. There is NO existing issue to comment on. Your final stdout is captured automatically and the platform writes the user's success/failure inbox notification based on whether `multica issue create` succeeded.\n\n")
+		b.WriteString("- Do NOT call `multica issue comment add` — the issue you just created has no conversation context for this run.\n")
+		b.WriteString("- Print exactly one final line: `Created MUL-<n>: <title>` after a successful `multica issue create`.\n")
+		b.WriteString("- On CLI failure, exit with the CLI error as the only output. The platform translates that into a `quick_create_failed` inbox item carrying the original prompt for the user.\n")
+	default:
 		b.WriteString("⚠️ **Final results MUST be delivered via `multica issue comment add`.** The user does NOT see your terminal output, assistant chat text, or run logs — only comments on the issue. A task that finishes without a result comment is invisible to the user, even if the work itself was correct.\n\n")
 		b.WriteString("Keep comments concise and natural — state the outcome, not the process.\n")
 		b.WriteString("Good: \"Fixed the login redirect. PR: https://...\"\n")
