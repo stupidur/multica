@@ -135,7 +135,7 @@ export function AgentCreatePanel({
   // Image paste/drop support: route uploads through the same helper Advanced
   // uses, so users can paste screenshots straight into the prompt and the
   // agent receives them as embedded markdown image URLs in the prompt.
-  const { uploadWithToast } = useFileUpload(api);
+  const { uploadWithToast, uploading } = useFileUpload(api);
   const handleUploadFile = useCallback(
     (file: File) => uploadWithToast(file),
     [uploadWithToast],
@@ -154,7 +154,7 @@ export function AgentCreatePanel({
 
   const submit = async () => {
     const md = editorRef.current?.getMarkdown()?.trim() ?? "";
-    if (!md || !agentId || submitting || versionBlocked) return;
+    if (!md || !agentId || submitting || versionBlocked || uploading) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -348,14 +348,14 @@ export function AgentCreatePanel({
             <Button
               size="sm"
               onClick={submit}
-              disabled={!hasContent || !agentId || submitting || versionBlocked}
+              disabled={!hasContent || !agentId || submitting || versionBlocked || uploading}
               title={
                 versionBlocked
                   ? `Daemon CLI must be ≥ ${versionCheck.min}`
                   : undefined
               }
             >
-              {submitting ? "Sending…" : "Create"}
+              {submitting ? "Sending…" : uploading ? "Uploading…" : "Create"}
             </Button>
           </div>
         </div>
