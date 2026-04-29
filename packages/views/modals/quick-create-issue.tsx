@@ -252,6 +252,7 @@ export function AgentCreatePanel({
               on the first focusable element on mount, causing the tooltip to
               auto-pop every open. */}
           <button
+            type="button"
             onClick={onClose}
             title="Close"
             aria-label="Close"
@@ -268,6 +269,7 @@ export function AgentCreatePanel({
               render={
                 <button
                   type="button"
+                  aria-label="Select agent"
                   className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer rounded-sm px-1.5 py-1 -ml-1.5 hover:bg-accent/60"
                 >
                   <span>Created by</span>
@@ -307,6 +309,9 @@ export function AgentCreatePanel({
                       size={16}
                     />
                     <span className="flex-1 truncate">{a.name}</span>
+                    {agentId === a.id && (
+                      <Check className="size-3.5 text-muted-foreground" />
+                    )}
                   </DropdownMenuItem>
                 ))
               )}
@@ -350,30 +355,30 @@ export function AgentCreatePanel({
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 border-t shrink-0">
-          <div className="flex items-center gap-1.5">
+        <div className="flex flex-col gap-2 border-t px-4 py-3 shrink-0 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-h-7 items-center gap-2">
             <FileUploadButton
               size="sm"
+              disabled={uploading}
               onSelect={(file) => editorRef.current?.uploadFile(file)}
             />
-            <span className="text-xs text-muted-foreground">
-              {keepOpen && sentCount > 0 && (
-                <span className="text-emerald-600 dark:text-emerald-400">{sentCount} sent · </span>
-              )}
-              ⌘↵ to submit
-            </span>
+            {keepOpen && sentCount > 0 && (
+              <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                {sentCount} sent
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={switchToManual}
               title="Switch to manual create — fill the fields yourself"
-              className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors cursor-pointer"
+              className="flex shrink-0 items-center gap-1.5 text-xs px-2 py-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors cursor-pointer"
             >
               <ArrowLeftRight className="size-3.5" />
-              Switch to manual
+              Switch to Manual
             </button>
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
               <Switch
                 size="sm"
                 checked={keepOpen}
@@ -390,11 +395,11 @@ export function AgentCreatePanel({
                   ? `Daemon CLI must be ≥ ${versionCheck.min}`
                   : undefined
               }
-              className={justSent ? "!bg-emerald-600 !text-white" : undefined}
+              className={justSent ? "min-w-28 !bg-emerald-600 !text-white" : "min-w-28"}
             >
               {submitting ? "Sending…" : uploading ? "Uploading…" : justSent ? (
                 <span className="flex items-center gap-1"><Check className="size-3.5" />Sent</span>
-              ) : "Create"}
+              ) : "Create (⌘↵)"}
             </Button>
           </div>
         </div>
