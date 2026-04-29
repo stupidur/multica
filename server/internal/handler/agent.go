@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -18,6 +19,12 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
+
+// Mirrors AGENT_DESCRIPTION_MAX_LENGTH in packages/core/agents/constants.ts
+// and the agent_description_length CHECK constraint in migration 060. Counted
+// in unicode code points (utf8.RuneCountInString), matching Postgres
+// char_length and the front-end's String.prototype.length-with-counter UX.
+const maxAgentDescriptionLength = 255
 
 type AgentResponse struct {
 	ID                 string            `json:"id"`
@@ -137,6 +144,7 @@ type AgentTaskResponse struct {
 	PriorWorkDir            string          `json:"prior_work_dir,omitempty"`            // work_dir from a previous task on same issue
 	TriggerCommentID        *string         `json:"trigger_comment_id,omitempty"`        // comment that triggered this task
 	TriggerCommentContent   string          `json:"trigger_comment_content,omitempty"`   // content of the triggering comment
+	TriggerSummary          *string         `json:"trigger_summary,omitempty"`           // canonical short description snapshot — comment text / autopilot title — taken at task creation; survives source edits/deletes
 	TriggerAuthorType       string          `json:"trigger_author_type,omitempty"`       // "agent" or "member" — author kind of the triggering comment
 	TriggerAuthorName       string          `json:"trigger_author_name,omitempty"`       // display name of the triggering comment author
 	ChatSessionID           string          `json:"chat_session_id,omitempty"`           // non-empty for chat tasks
@@ -190,6 +198,7 @@ func taskToResponse(t db.AgentTaskQueue) AgentTaskResponse {
 		ParentTaskID:     uuidToPtr(t.ParentTaskID),
 		CreatedAt:        timestampToString(t.CreatedAt),
 		TriggerCommentID: uuidToPtr(t.TriggerCommentID),
+		TriggerSummary:   textToPtr(t.TriggerSummary),
 		// Surface task source so the UI can distinguish issue-linked tasks
 		// from chat-spawned or autopilot-spawned ones; all three may arrive
 		// with issue_id = "" once a task has no linked issue.
@@ -342,6 +351,10 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if utf8.RuneCountInString(req.Description) > maxAgentDescriptionLength {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("description must be %d characters or fewer", maxAgentDescriptionLength))
 		return
 	}
 	if req.RuntimeID == "" {
@@ -545,6 +558,10 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		params.Name = pgtype.Text{String: *req.Name, Valid: true}
 	}
 	if req.Description != nil {
+		if utf8.RuneCountInString(*req.Description) > maxAgentDescriptionLength {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("description must be %d characters or fewer", maxAgentDescriptionLength))
+			return
+		}
 		params.Description = pgtype.Text{String: *req.Description, Valid: true}
 	}
 	if req.Instructions != nil {
