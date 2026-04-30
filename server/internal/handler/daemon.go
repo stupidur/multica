@@ -156,10 +156,7 @@ func normalizeWorkspaceRepos(repos []RepoData) []RepoData {
 			continue
 		}
 		seen[url] = struct{}{}
-		normalized = append(normalized, RepoData{
-			URL:         url,
-			Description: strings.TrimSpace(repo.Description),
-		})
+		normalized = append(normalized, RepoData{URL: url})
 	}
 	return normalized
 }
@@ -914,11 +911,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 								URL string `json:"url"`
 							}
 							if json.Unmarshal(row.ResourceRef, &payload) == nil && payload.URL != "" {
-								desc := ""
-								if row.Label.Valid {
-									desc = row.Label.String
-								}
-								projectRepos = append(projectRepos, RepoData{URL: payload.URL, Description: desc})
+								projectRepos = append(projectRepos, RepoData{URL: payload.URL})
 							}
 						}
 					}

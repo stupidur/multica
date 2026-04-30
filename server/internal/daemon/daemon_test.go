@@ -637,7 +637,7 @@ func TestEnsureRepoReadyRefreshesOnMiss(t *testing.T) {
 		refreshCalls.Add(1)
 		json.NewEncoder(w).Encode(WorkspaceReposResponse{
 			WorkspaceID:  "ws-1",
-			Repos:        []RepoData{{URL: sourceRepo, Description: "repo"}},
+			Repos:        []RepoData{{URL: sourceRepo}},
 			ReposVersion: "v2",
 		})
 	})
@@ -677,7 +677,7 @@ func TestRegisterTaskReposAllowsProjectOnlyURL(t *testing.T) {
 	// the only repo URL the agent should be able to check out.
 	d.workspaces["ws-1"] = newWorkspaceState("ws-1", nil, "", nil, nil)
 
-	d.registerTaskRepos("ws-1", []RepoData{{URL: sourceRepo, Description: "project repo"}})
+	d.registerTaskRepos("ws-1", []RepoData{{URL: sourceRepo}})
 
 	// The async clone goroutine in registerTaskRepos may not have finished;
 	// poll briefly until the cache is populated so the test isn't racy.
@@ -762,7 +762,7 @@ func TestEnsureRepoReadyReportsSyncFailure(t *testing.T) {
 	d := newRepoReadyTestDaemon(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(WorkspaceReposResponse{
 			WorkspaceID:  "ws-1",
-			Repos:        []RepoData{{URL: missingRepo, Description: "missing"}},
+			Repos:        []RepoData{{URL: missingRepo}},
 			ReposVersion: "v1",
 		})
 	})
@@ -790,7 +790,7 @@ func TestEnsureRepoReadyConcurrentMissRefreshesOnce(t *testing.T) {
 		refreshCalls.Add(1)
 		json.NewEncoder(w).Encode(WorkspaceReposResponse{
 			WorkspaceID:  "ws-1",
-			Repos:        []RepoData{{URL: sourceRepo, Description: "repo"}},
+			Repos:        []RepoData{{URL: sourceRepo}},
 			ReposVersion: "v2",
 		})
 	})
