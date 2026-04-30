@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -907,7 +908,7 @@ func (d *Daemon) triggerRestart() {
 }
 
 func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan struct{}) error {
-	sem := make(chan struct{}, d.cfg.MaxConcurrentTasks)
+	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
 	var wg sync.WaitGroup
 
 	pollOffset := 0
@@ -940,8 +941,9 @@ func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan struct{}) erro
 		n := len(runtimeIDs)
 		for i := 0; i < n; i++ {
 			// Check if we have capacity before claiming.
+			var slot int
 			select {
-			case sem <- struct{}{}:
+			case slot = <-sem:
 				// Acquired a slot.
 			default:
 				// All slots occupied, stop trying to claim.
@@ -952,7 +954,7 @@ func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan struct{}) erro
 			rid := runtimeIDs[(pollOffset+i)%n]
 			task, err := d.client.ClaimTask(ctx, rid)
 			if err != nil {
-				<-sem // Release the slot.
+				sem <- slot // Release the slot.
 				d.logger.Warn("claim task failed", "runtime_id", rid, "error", err)
 				continue
 			}
@@ -964,18 +966,18 @@ func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan struct{}) erro
 				d.logger.Info("task received", "task", shortID(task.ID), "target", taskTarget)
 				wg.Add(1)
 				d.activeTasks.Add(1)
-				go func(t Task) {
+				go func(t Task, slot int) {
 					defer wg.Done()
 					defer d.activeTasks.Add(-1)
-					defer func() { <-sem }()
-					d.handleTask(ctx, t)
-				}(*task)
+					defer func() { sem <- slot }()
+					d.handleTask(ctx, t, slot)
+				}(*task, slot)
 				claimed = true
 				pollOffset = (pollOffset + i + 1) % n
 				break
 			}
 			// No task for this runtime, release the slot and try next.
-			<-sem
+			sem <- slot
 		}
 
 	sleep:
@@ -995,7 +997,18 @@ func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan struct{}) erro
 	}
 }
 
-func (d *Daemon) handleTask(ctx context.Context, task Task) {
+// newTaskSlotSemaphore returns a buffered channel pre-populated with stable
+// slot indices [0, n). Receive to acquire a slot, send the same slot back to
+// release. Used by pollLoop to expose MULTICA_TASK_SLOT to spawned tasks.
+func newTaskSlotSemaphore(maxConcurrentTasks int) chan int {
+	sem := make(chan int, maxConcurrentTasks)
+	for i := 0; i < maxConcurrentTasks; i++ {
+		sem <- i
+	}
+	return sem
+}
+
+func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 	d.mu.Lock()
 	rt := d.runtimeIndex[task.RuntimeID]
 	d.mu.Unlock()
@@ -1048,7 +1061,7 @@ func (d *Daemon) handleTask(ctx context.Context, task Task) {
 		}
 	}()
 
-	result, err := d.runTask(runCtx, task, provider, taskLog)
+	result, err := d.runTask(runCtx, task, provider, slot, taskLog)
 
 	// Check if we were cancelled by the polling goroutine.
 	select {
@@ -1118,7 +1131,7 @@ func (d *Daemon) handleTask(ctx context.Context, task Task) {
 	}
 }
 
-func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLog *slog.Logger) (TaskResult, error) {
+func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot int, taskLog *slog.Logger) (TaskResult, error) {
 	// Refuse to spawn an agent without a workspace. An empty workspace_id
 	// here would make MULTICA_WORKSPACE_ID empty in the agent env, and the
 	// CLI would otherwise silently fall back to the user-global config — a
@@ -1199,6 +1212,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 
 	// Pass the daemon's auth credentials and context so the spawned agent CLI
 	// can call the Multica API and the local daemon (e.g. `multica repo checkout`).
+	// MULTICA_TASK_SLOT is allocated from the daemon-wide concurrency pool, not
+	// per-agent. When one daemon hosts multiple agents, slots index shared
+	// daemon-level resources such as GPUs.
 	agentEnv := map[string]string{
 		"MULTICA_TOKEN":        d.client.Token(),
 		"MULTICA_SERVER_URL":   d.cfg.ServerBaseURL,
@@ -1207,6 +1223,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 		"MULTICA_AGENT_NAME":   agentName,
 		"MULTICA_AGENT_ID":     task.AgentID,
 		"MULTICA_TASK_ID":      task.ID,
+		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
 	}
 	if task.AutopilotRunID != "" {
 		agentEnv["MULTICA_AUTOPILOT_RUN_ID"] = task.AutopilotRunID
