@@ -16,7 +16,7 @@
  * - Rendering mentions with the same IssueMentionCard component and .mention class
  */
 
-import { useMemo, useRef, useState } from "react";
+import { isValidElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
@@ -48,6 +48,134 @@ import "./content-editor.css";
 // ---------------------------------------------------------------------------
 
 const lowlight = createLowlight(common);
+
+type MermaidAPI = typeof import("mermaid").default;
+
+type MermaidLayout = {
+  width?: number;
+  height?: number;
+};
+
+let mermaidPromise: Promise<MermaidAPI> | null = null;
+
+function getMermaid(): Promise<MermaidAPI> {
+  mermaidPromise ??= import("mermaid").then(({ default: mermaid }) => mermaid);
+
+  return mermaidPromise;
+}
+
+function toLegacyColor(color: string, fallback: string, ownerDocument: Document): string {
+  const canvas = ownerDocument.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return fallback;
+
+  // Mermaid's color parser only supports legacy color syntax. Canvas can parse
+  // modern CSS Color 4 values such as oklch(), then getImageData gives concrete
+  // 8-bit sRGB bytes that Mermaid can consume safely.
+  context.fillStyle = "#000";
+  context.fillStyle = color || fallback;
+  context.fillRect(0, 0, 1, 1);
+  const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
+
+  return `rgb(${red}, ${green}, ${blue})`;
+}
+
+function resolveCssColor(
+  host: HTMLElement,
+  variableName: string,
+  fallback: string,
+): string {
+  const probe = host.ownerDocument.createElement("span");
+  probe.style.color = `var(${variableName})`;
+  probe.style.display = "none";
+  host.appendChild(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+
+  return toLegacyColor(color || fallback, fallback, host.ownerDocument);
+}
+
+function getMermaidThemeVariables(host: HTMLElement | null) {
+  if (!host) {
+    return {
+      primaryColor: "rgb(245, 245, 245)",
+      primaryBorderColor: "rgb(59, 130, 246)",
+      primaryTextColor: "rgb(17, 24, 39)",
+      lineColor: "rgb(107, 114, 128)",
+      fontFamily: "inherit",
+    };
+  }
+
+  return {
+    primaryColor: resolveCssColor(host, "--muted", "rgb(245, 245, 245)"),
+    primaryBorderColor: resolveCssColor(host, "--primary", "rgb(59, 130, 246)"),
+    primaryTextColor: resolveCssColor(host, "--foreground", "rgb(17, 24, 39)"),
+    lineColor: resolveCssColor(host, "--muted-foreground", "rgb(107, 114, 128)"),
+    fontFamily: "inherit",
+  };
+}
+
+function getSandboxCssVariables(host: HTMLElement | null): string {
+  const styles = host ? getComputedStyle(host) : null;
+  return ["--muted", "--primary", "--foreground", "--muted-foreground"]
+    .map((name) => `${name}: ${styles?.getPropertyValue(name).trim() || "initial"};`)
+    .join(" ");
+}
+
+function getMermaidLayout(svg: string): MermaidLayout {
+  const viewBoxMatch = svg.match(
+    /viewBox=["']\s*([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s*["']/i,
+  );
+  const [, , , widthValue, heightValue] = viewBoxMatch ?? [];
+  const width = widthValue ? Number.parseFloat(widthValue) : undefined;
+  const height = heightValue ? Number.parseFloat(heightValue) : undefined;
+
+  if (width && height && width > 0 && height > 0) {
+    return {
+      width: Math.ceil(width),
+      height: Math.ceil(height),
+    };
+  }
+
+  return {};
+}
+
+function buildSandboxedMermaidDocument(svg: string, host: HTMLElement | null): string {
+  const cssVariables = getSandboxCssVariables(host);
+
+  return `<!doctype html><html><head><style>:root { ${cssVariables} } body { margin: 0; display: flex; justify-content: center; background: transparent; } svg { max-width: 100%; height: auto; }</style></head><body>${svg}</body></html>`;
+}
+
+function useThemeVersion() {
+  const [themeVersion, setThemeVersion] = useState(0);
+
+  useEffect(() => {
+    const bumpThemeVersion = () => setThemeVersion((version) => version + 1);
+    const observer = new MutationObserver(bumpThemeVersion);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style", "data-theme"],
+    });
+    if (document.body) {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["class", "style", "data-theme"],
+      });
+    }
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    mediaQuery.addEventListener("change", bumpThemeVersion);
+
+    return () => {
+      observer.disconnect();
+      mediaQuery.removeEventListener("change", bumpThemeVersion);
+    };
+  }, []);
+
+  return themeVersion;
+}
 
 // ---------------------------------------------------------------------------
 // Sanitization schema — extends GitHub defaults to allow file-card data attrs
@@ -158,6 +286,85 @@ function ReadonlyLink({
   );
 }
 
+function MermaidDiagram({ chart }: { chart: string }) {
+  const reactId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const diagramId = useMemo(
+    () => `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`,
+    [reactId],
+  );
+  const themeVersion = useThemeVersion();
+  const [sandboxedDocument, setSandboxedDocument] = useState<string | null>(null);
+  const [layout, setLayout] = useState<MermaidLayout>({});
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderDiagram() {
+      try {
+        setError(null);
+        setSandboxedDocument(null);
+        setLayout({});
+        const mermaid = await getMermaid();
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "base",
+          themeVariables: getMermaidThemeVariables(containerRef.current),
+        });
+        const { svg: renderedSvg } = await mermaid.render(diagramId, chart);
+        if (!cancelled) {
+          setLayout(getMermaidLayout(renderedSvg));
+          setSandboxedDocument(
+            buildSandboxedMermaidDocument(renderedSvg, containerRef.current),
+          );
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to render Mermaid diagram");
+        }
+      }
+    }
+
+    void renderDiagram();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chart, diagramId, themeVersion]);
+
+  if (error) {
+    return (
+      <div ref={containerRef} className="mermaid-diagram mermaid-diagram-error">
+        <p>Unable to render Mermaid diagram.</p>
+        <pre>
+          <code>{chart}</code>
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="mermaid-diagram" aria-label="Mermaid diagram">
+      {sandboxedDocument ? (
+        <iframe
+          className="mermaid-diagram-frame"
+          sandbox=""
+          srcDoc={sandboxedDocument}
+          style={{
+            height: layout.height ? `${layout.height}px` : undefined,
+            width: layout.width ? `${layout.width}px` : undefined,
+          }}
+          title="Mermaid diagram"
+        />
+      ) : (
+        <div className="mermaid-diagram-loading">Rendering diagram…</div>
+      )}
+    </div>
+  );
+}
+
 const components: Partial<Components> = {
   // Links — route mention:// to mention components, others show preview card
   a: ReadonlyLink,
@@ -251,6 +458,10 @@ const components: Partial<Components> = {
       node?.position &&
       node.position.start.line !== node.position.end.line;
 
+    if (isBlock && lang === "mermaid") {
+      return <MermaidDiagram chart={String(children).replace(/\n$/, "")} />;
+    }
+
     if (!isBlock && !lang) {
       // Inline code — CSS handles styling via .rich-text-editor code
       return <code {...props}>{children}</code>;
@@ -279,7 +490,12 @@ const components: Partial<Components> = {
   },
 
   // Pre — pass through (CSS handles styling via .rich-text-editor pre)
-  pre: ({ children }) => <pre>{children}</pre>,
+  pre: ({ children }) => {
+    if (isValidElement(children) && children.type === MermaidDiagram) {
+      return <>{children}</>;
+    }
+    return <pre>{children}</pre>;
+  },
 };
 
 // ---------------------------------------------------------------------------
