@@ -177,14 +177,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   });
   const sidebarRef = usePanelRef();
   const isMobile = useIsMobile();
-  const [sidebarOpen, setSidebarOpen] = useState(defaultSidebarOpen);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(defaultSidebarOpen);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (isMobile) {
-      setSidebarOpen(false);
-      sidebarRef.current?.collapse();
+      setMobileSidebarOpen(false);
     }
   }, [isMobile]);
+  const sidebarOpen = isMobile ? mobileSidebarOpen : desktopSidebarOpen;
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [parentIssueOpen, setParentIssueOpen] = useState(true);
@@ -306,6 +307,18 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Called before the `if (!issue)` early return so hook order stays stable.
   const actions = useIssueActions(issue);
   const handleUpdateField = actions.updateField;
+
+  const handleToggleSidebar = useCallback(() => {
+    if (isMobile) {
+      setMobileSidebarOpen((open) => !open);
+      return;
+    }
+
+    const panel = sidebarRef.current;
+    if (!panel) return;
+    if (panel.isCollapsed()) panel.expand();
+    else panel.collapse();
+  }, [isMobile, sidebarRef]);
 
   if (loading) {
     return (
@@ -488,10 +501,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     </div>
   );
 
-  return (
-    <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
-      <ResizablePanel id="content" minSize="50%">
-      <div className="flex h-full flex-col">
+  const detailContent = (
+    <div className="flex h-full min-w-0 flex-1 flex-col">
         <PageHeader className="gap-2 bg-background text-sm">
           <div className="flex flex-1 items-center gap-1.5 min-w-0">
             {workspace && (
@@ -572,16 +583,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                     variant={sidebarOpen ? "secondary" : "ghost"}
                     size="icon-sm"
                     className={sidebarOpen ? "" : "text-muted-foreground"}
-                    onClick={() => {
-                      if (isMobile) {
-                        setSidebarOpen(!sidebarOpen);
-                      } else {
-                        const panel = sidebarRef.current;
-                        if (!panel) return;
-                        if (panel.isCollapsed()) panel.expand();
-                        else panel.collapse();
-                      }
-                    }}
+                    onClick={handleToggleSidebar}
                   >
                     <PanelRight />
                   </Button>
@@ -1000,9 +1002,27 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         </div>
         </div>
       </div>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="flex flex-1 min-h-0">
+        {detailContent}
+        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+          <SheetContent side="right" showCloseButton={false} className="w-[320px] overflow-y-auto p-4">
+            {sidebarContent}
+          </SheetContent>
+        </Sheet>
+      </div>
+    );
+  }
+
+  return (
+    <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
+      <ResizablePanel id="content" minSize="50%">
+        {detailContent}
       </ResizablePanel>
-      {!isMobile && <ResizableHandle />}
-      {!isMobile && (
+      <ResizableHandle />
       <ResizablePanel
         id="sidebar"
         defaultSize={defaultSidebarOpen ? 320 : 0}
@@ -1011,7 +1031,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         collapsible
         groupResizeBehavior="preserve-pixel-size"
         panelRef={sidebarRef}
-        onResize={(size) => setSidebarOpen(size.inPixels > 0)}
+        onResize={(size) => setDesktopSidebarOpen(size.inPixels > 0)}
       >
       <div className="overflow-y-auto border-l h-full">
         <div className="p-4">
@@ -1019,14 +1039,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         </div>
       </div>
       </ResizablePanel>
-      )}
-      {isMobile && (
-        <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-          <SheetContent side="right" showCloseButton={false} className="w-[320px] overflow-y-auto p-4">
-            {sidebarContent}
-          </SheetContent>
-        </Sheet>
-      )}
     </ResizablePanelGroup>
   );
 }
