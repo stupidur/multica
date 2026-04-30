@@ -422,7 +422,6 @@ export function ChatWindow() {
           messages={messages}
           pendingTask={pendingTask}
           availability={availability}
-          onCancel={handleStop}
         />
       ) : (
         <EmptyState
