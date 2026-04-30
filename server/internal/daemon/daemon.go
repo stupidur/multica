@@ -26,11 +26,18 @@ import (
 var ErrRepoNotConfigured = errors.New("repo is not configured for this workspace")
 
 // workspaceState tracks registered runtimes for a single workspace.
+//
+// allowedRepoURLs covers the workspace-level repo bindings; it gets rebuilt on
+// every refresh from the server. taskRepoURLs covers repos that the server
+// surfaced through a per-task claim (project github_repo resources today,
+// possibly other typed sources later) — those don't show up in
+// GetWorkspaceRepos, so they would be wiped on refresh if we shared one map.
 type workspaceState struct {
 	workspaceID     string
 	runtimeIDs      []string
 	reposVersion    string // stored for future use: skip refresh when version unchanged
 	allowedRepoURLs map[string]struct{}
+	taskRepoURLs    map[string]struct{}
 	settings        json.RawMessage // workspace settings (JSONB)
 	lastRepoSyncErr string
 	repoRefreshMu   sync.Mutex
@@ -359,8 +366,13 @@ func (d *Daemon) workspaceRepoAllowed(workspaceID, repoURL string) bool {
 	if !ok {
 		return false
 	}
-	_, allowed := ws.allowedRepoURLs[repoURL]
-	return allowed
+	if _, allowed := ws.allowedRepoURLs[repoURL]; allowed {
+		return true
+	}
+	if _, allowed := ws.taskRepoURLs[repoURL]; allowed {
+		return true
+	}
+	return false
 }
 
 func (d *Daemon) workspaceLastRepoSyncErr(workspaceID string) string {
@@ -390,6 +402,56 @@ func (d *Daemon) workspaceCoAuthoredByEnabled(workspaceID string) bool {
 		return true // default: enabled
 	}
 	return *s.CoAuthoredByEnabled
+}
+
+// registerTaskRepos merges task-scoped repos (e.g. project github_repo
+// resources lifted into resp.Repos by the claim handler) into the workspace's
+// allowlist and kicks off a cache sync for any URLs that aren't yet cached.
+//
+// It's safe to call with the workspace's own repos — duplicates are
+// idempotent. Called from runTask before the agent spawns so
+// `multica repo checkout` accepts project-only URLs without an extra round
+// trip back to GetWorkspaceRepos (which doesn't carry project resources).
+func (d *Daemon) registerTaskRepos(workspaceID string, repos []RepoData) {
+	if len(repos) == 0 {
+		return
+	}
+
+	d.mu.Lock()
+	ws, ok := d.workspaces[workspaceID]
+	if !ok {
+		d.mu.Unlock()
+		return
+	}
+	if ws.taskRepoURLs == nil {
+		ws.taskRepoURLs = make(map[string]struct{}, len(repos))
+	}
+	toSync := make([]RepoData, 0, len(repos))
+	for _, repo := range repos {
+		url := strings.TrimSpace(repo.URL)
+		if url == "" {
+			continue
+		}
+		// Don't re-sync if the URL is already tracked (workspace or task-scoped)
+		// AND the cache already has it.
+		_, inWorkspace := ws.allowedRepoURLs[url]
+		_, inTask := ws.taskRepoURLs[url]
+		if (inWorkspace || inTask) && d.repoCache != nil && d.repoCache.Lookup(workspaceID, url) != "" {
+			ws.taskRepoURLs[url] = struct{}{}
+			continue
+		}
+		ws.taskRepoURLs[url] = struct{}{}
+		toSync = append(toSync, RepoData{URL: url, Description: repo.Description})
+	}
+	d.mu.Unlock()
+
+	if d.repoCache != nil && len(toSync) > 0 {
+		// Sync in the background — same shape used at workspace registration.
+		// `ensureRepoReady` reports a meaningful error if the cache isn't ready
+		// yet, so the agent's first checkout will surface a sync failure
+		// without silently treating it as a config bug.
+		go d.syncWorkspaceRepos(workspaceID, toSync)
+	}
 }
 
 func (d *Daemon) syncWorkspaceRepos(workspaceID string, repos []RepoData) {
@@ -1140,6 +1202,14 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if task.WorkspaceID == "" {
 		return TaskResult{}, fmt.Errorf("refusing to spawn agent: task has no workspace_id (task_id=%s)", task.ID)
 	}
+
+	// task.Repos is the authoritative repo list for this task — when the
+	// claimed task belongs to a project with github_repo resources the server
+	// has already narrowed it to project repos only. Make sure those URLs are
+	// in the per-workspace allowlist and the local cache, otherwise
+	// `multica repo checkout` would reject project-only URLs that aren't also
+	// bound at the workspace level.
+	d.registerTaskRepos(task.WorkspaceID, task.Repos)
 
 	entry, ok := d.cfg.Agents[provider]
 	if !ok {

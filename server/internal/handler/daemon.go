@@ -873,18 +873,17 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Include workspace ID and repos so the daemon can set up worktrees.
+	//
+	// Repo precedence: project-bound github_repo resources override workspace
+	// repos when present. Mixing both would just confuse the agent — if a
+	// project explicitly attached its repos, those are the authoritative set
+	// for issues inside that project. When the project has no github_repo
+	// resources (or no project at all), we fall back to the workspace repos.
 	if task.IssueID.Valid {
 		if issue, err := h.Queries.GetIssue(r.Context(), task.IssueID); err == nil {
 			resp.WorkspaceID = uuidToString(issue.WorkspaceID)
-			if ws, err := h.Queries.GetWorkspace(r.Context(), issue.WorkspaceID); err == nil && ws.Repos != nil {
-				var repos []RepoData
-				if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {
-					resp.Repos = repos
-				}
-			}
-			// Attach project context (id, title, resources) when the issue
-			// belongs to a project. Resource fetch failures degrade gracefully
-			// — the agent simply runs without project context, never blocked.
+
+			var projectRepos []RepoData
 			if issue.ProjectID.Valid {
 				resp.ProjectID = uuidToString(issue.ProjectID)
 				if proj, err := h.Queries.GetProject(r.Context(), issue.ProjectID); err == nil {
@@ -907,8 +906,32 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 							ResourceRef:  ref,
 							Label:        label,
 						})
+						// Lift github_repo resources into the daemon's repo list
+						// so `multica repo checkout` and the meta-skill render
+						// them as the issue's repos.
+						if row.ResourceType == "github_repo" {
+							var payload struct {
+								URL string `json:"url"`
+							}
+							if json.Unmarshal(row.ResourceRef, &payload) == nil && payload.URL != "" {
+								desc := ""
+								if row.Label.Valid {
+									desc = row.Label.String
+								}
+								projectRepos = append(projectRepos, RepoData{URL: payload.URL, Description: desc})
+							}
+						}
 					}
 					resp.ProjectResources = out
+				}
+			}
+
+			if len(projectRepos) > 0 {
+				resp.Repos = projectRepos
+			} else if ws, err := h.Queries.GetWorkspace(r.Context(), issue.WorkspaceID); err == nil && ws.Repos != nil {
+				var repos []RepoData
+				if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {
+					resp.Repos = repos
 				}
 			}
 		}

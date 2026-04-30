@@ -201,6 +201,48 @@ func TestPrepareWithProjectResources(t *testing.T) {
 	}
 }
 
+// When the issue's project has its own github_repo resources, those should be
+// the only repos rendered in the meta-skill — workspace-level repos must not
+// leak into the agent prompt to avoid confusing it about which repo to use.
+//
+// The handler-side override is exercised in handler tests; this test confirms
+// the rendering side: given a TaskContextForEnv where Repos was already
+// narrowed by the server to project repos only, the meta skill renders just
+// those.
+func TestProjectReposReplaceWorkspaceReposInMetaSkill(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := TaskContextForEnv{
+		IssueID:      "11111111-2222-3333-4444-555555555555",
+		ProjectID:    "22222222-3333-4444-5555-666666666666",
+		ProjectTitle: "Project A",
+		Repos: []RepoContextForEnv{
+			{URL: "https://github.com/org/project-repo", Description: ""},
+		},
+		ProjectResources: []ProjectResourceForEnv{
+			{
+				ID:           "33333333-4444-5555-6666-777777777777",
+				ResourceType: "github_repo",
+				ResourceRef:  []byte(`{"url":"https://github.com/org/project-repo"}`),
+			},
+		},
+	}
+	if err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
+		t.Fatalf("InjectRuntimeConfig: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	s := string(content)
+	if !strings.Contains(s, "https://github.com/org/project-repo") {
+		t.Errorf("CLAUDE.md missing project repo URL")
+	}
+	if strings.Contains(s, "https://github.com/org/workspace-repo") {
+		t.Errorf("CLAUDE.md should not contain workspace repo when project has its own")
+	}
+}
+
 func TestWriteProjectResourcesSkippedWhenNone(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
