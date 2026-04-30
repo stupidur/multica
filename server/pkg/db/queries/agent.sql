@@ -323,6 +323,19 @@ SELECT * FROM agent_task_queue
 WHERE runtime_id = $1 AND status IN ('queued', 'dispatched')
 ORDER BY priority DESC, created_at ASC;
 
+-- name: ListQueuedClaimCandidatesByRuntime :many
+-- Returns rows the runtime can attempt to claim. Status is restricted to
+-- 'queued' (in contrast to ListPendingTasksByRuntime which also includes
+-- 'dispatched') because dispatched rows are by definition already owned
+-- and cannot be re-claimed — including them in the candidate list pads
+-- the result with rows that always lose the per-(issue, agent) race in
+-- ClaimAgentTask, wasting CPU and a SELECT every poll cycle when the
+-- runtime is busy on a long-running task. Backed by the partial index
+-- idx_agent_task_queue_claim_candidates so the warm path is cheap.
+SELECT * FROM agent_task_queue
+WHERE runtime_id = $1 AND status = 'queued'
+ORDER BY priority DESC, created_at ASC;
+
 -- name: ListActiveTasksByIssue :many
 SELECT * FROM agent_task_queue
 WHERE issue_id = $1 AND status IN ('dispatched', 'running')

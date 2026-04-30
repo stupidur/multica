@@ -28,6 +28,12 @@ type TaskService struct {
 	Hub       *realtime.Hub
 	Bus       *events.Bus
 	Wakeup    TaskWakeupNotifier
+	// EmptyClaim caches "this runtime has no queued task" so the daemon
+	// poll path can skip a Postgres scan on the steady-state empty case.
+	// Optional — a nil cache disables the fast path and every claim
+	// goes through the DB. Wired in router.go from the shared Redis
+	// client.
+	EmptyClaim *EmptyClaimCache
 }
 
 type TaskWakeupNotifier interface {
@@ -451,6 +457,12 @@ func (s *TaskService) ClaimTask(ctx context.Context, agentID pgtype.UUID) (*db.A
 
 // ClaimTaskForRuntime claims the next runnable task for a runtime while
 // still respecting each agent's max_concurrent_tasks limit.
+//
+// Empty-claim fast path: when EmptyClaim is configured and a recent
+// check verified the runtime had no queued tasks, returns immediately
+// without touching Postgres. The cache is invalidated synchronously on
+// every enqueue (notifyTaskAvailable), so a queued task becomes
+// claimable on the next call rather than waiting for the TTL.
 func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.UUID) (*db.AgentTaskQueue, error) {
 	start := time.Now()
 	var (
@@ -476,13 +488,33 @@ func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.
 		)
 	}()
 
-	t0 := start
-	tasks, err := s.Queries.ListPendingTasksByRuntime(ctx, runtimeID)
+	runtimeKey := util.UUIDToString(runtimeID)
+	if s.EmptyClaim.IsEmpty(ctx, runtimeKey) {
+		outcome = "empty_cache_hit"
+		return nil, nil
+	}
+
+	// Sample the invalidation version BEFORE the SELECT. If a
+	// concurrent enqueue Bumps between this read and the post-SELECT
+	// MarkEmpty, the next IsEmpty will see the empty key tagged with
+	// a stale version and reject it — closing the race that would
+	// otherwise stall the just-queued task until the empty key's TTL
+	// expired.
+	preSelectVersion := s.EmptyClaim.CurrentVersion(ctx, runtimeKey)
+
+	t0 := time.Now()
+	tasks, err := s.Queries.ListQueuedClaimCandidatesByRuntime(ctx, runtimeID)
 	listMs = time.Since(t0).Milliseconds()
 	listCount = len(tasks)
 	if err != nil {
 		outcome = "error_list"
-		return nil, fmt.Errorf("list pending tasks: %w", err)
+		return nil, fmt.Errorf("list queued claim candidates: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		s.EmptyClaim.MarkEmpty(ctx, runtimeKey, preSelectVersion)
+		outcome = "empty_db"
+		return nil, nil
 	}
 
 	loopStart := time.Now()
@@ -1163,11 +1195,38 @@ func priorityToInt(p string) int32 {
 	}
 }
 
+// NotifyTaskEnqueued is the cross-package shim for callers outside
+// TaskService (e.g. AutopilotService.dispatchRunOnly) that insert a
+// row into agent_task_queue directly. Invalidates the empty-claim
+// cache and kicks the daemon WS so the new task is claimed without
+// waiting for the next poll.
+func (s *TaskService) NotifyTaskEnqueued(task db.AgentTaskQueue) {
+	s.notifyTaskAvailable(task)
+}
+
+// notifyTaskAvailable runs after a task has been inserted: bumps the
+// runtime's invalidation version so any in-flight claim that is about
+// to write an "empty" verdict will have it rejected on read, then
+// kicks the daemon WS so the daemon claims without waiting for its
+// next poll. Order matters — Bump must happen before the wakeup,
+// otherwise the wakeup-driven claim could read the still-current
+// empty verdict and return null.
 func (s *TaskService) notifyTaskAvailable(task db.AgentTaskQueue) {
-	if s.Wakeup == nil || !task.RuntimeID.Valid {
+	if !task.RuntimeID.Valid {
 		return
 	}
-	s.Wakeup.NotifyTaskAvailable(util.UUIDToString(task.RuntimeID), util.UUIDToString(task.ID))
+	runtimeKey := util.UUIDToString(task.RuntimeID)
+	// Use a background context: the cache bump / wakeup must outlive
+	// the request that created the task, otherwise an early client
+	// disconnect could leave the empty verdict in place and stall the
+	// just-queued task until the TTL expires. The cache itself bounds
+	// every Redis call with a short timeout so a wedged Redis cannot
+	// block enqueue.
+	s.EmptyClaim.Bump(context.Background(), runtimeKey)
+	if s.Wakeup == nil {
+		return
+	}
+	s.Wakeup.NotifyTaskAvailable(runtimeKey, util.UUIDToString(task.ID))
 }
 
 func (s *TaskService) broadcastTaskDispatch(ctx context.Context, task db.AgentTaskQueue) {
