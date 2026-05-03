@@ -605,8 +605,14 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 		task = t
 
 		if t.ChatSessionID.Valid {
-			sessionRuntimeID := t.RuntimeID
-			sessionRuntimeID.Valid = sessionID != ""
+			// Pin the chat_session's runtime_id alongside the session_id so the
+			// next claim can apply the runtime-guard. Both fields move together:
+			// when there's no session_id to record, leave runtime_id untouched
+			// (NULL → COALESCE keeps the existing value).
+			var sessionRuntimeID pgtype.UUID
+			if sessionID != "" {
+				sessionRuntimeID = t.RuntimeID
+			}
 			// COALESCE in SQL guarantees empty inputs don't wipe the
 			// existing resume pointer; we still surface DB errors.
 			if err := qtx.UpdateChatSessionSession(ctx, db.UpdateChatSessionSessionParams{
@@ -757,8 +763,14 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 		task = t
 
 		if t.ChatSessionID.Valid {
-			sessionRuntimeID := t.RuntimeID
-			sessionRuntimeID.Valid = sessionID != ""
+			// Pin the chat_session's runtime_id alongside the session_id so the
+			// next claim can apply the runtime-guard. Both fields move together:
+			// when there's no session_id to record, leave runtime_id untouched
+			// (NULL → COALESCE keeps the existing value).
+			var sessionRuntimeID pgtype.UUID
+			if sessionID != "" {
+				sessionRuntimeID = t.RuntimeID
+			}
 			if err := qtx.UpdateChatSessionSession(ctx, db.UpdateChatSessionSessionParams{
 				ID:        t.ChatSessionID,
 				SessionID: pgtype.Text{String: sessionID, Valid: sessionID != ""},

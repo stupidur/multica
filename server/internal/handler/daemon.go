@@ -992,8 +992,13 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			// Resume chat sessions only when the stored pointer was produced
-			// by the same runtime as the claiming task. Legacy rows with no
-			// chat_session.runtime_id fall back to the task-row lookup below.
+			// by the same runtime as the claiming task. When the chat_session
+			// pointer is missing (legacy NULL runtime_id), stale (last task
+			// failed before reporting completion), or runtime-mismatched, fall
+			// back to the most recent task row that recorded a session_id —
+			// otherwise a single failed turn would silently drop the entire
+			// conversation memory on the next message. The fallback also
+			// requires runtime to match.
 			if cs.SessionID.Valid && cs.RuntimeID.Valid && cs.RuntimeID == task.RuntimeID {
 				resp.PriorSessionID = cs.SessionID.String
 			}

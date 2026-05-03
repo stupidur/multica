@@ -2183,3 +2183,58 @@ func TestClaimTask_ChatPriorSessionRuntimeGuard(t *testing.T) {
 		t.Fatalf("chat runtime match: expected PriorWorkDir='/tmp/same-chat-workdir', got %q", task.PriorWorkDir)
 	}
 }
+
+// Locks the legacy-row fallback: chat_session.runtime_id IS NULL (e.g. a row
+// the migration left untouched because no prior task matched the cs pointer)
+// but a completed task on the claiming runtime exists. ClaimTaskByRuntime
+// must recover the session from the task row, not start a fresh conversation.
+func TestClaimTask_ChatLegacyNullRuntimeFallsBackToTaskRow(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+
+	agentID, runtimeID, daemonID := createRuntimeGuardAgent(t, ctx)
+
+	var legacySessionID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO chat_session (
+			workspace_id, agent_id, creator_id, title,
+			session_id, work_dir, runtime_id
+		)
+		VALUES ($1, $2, $3, 'runtime guard legacy chat', NULL, NULL, NULL)
+		RETURNING id
+	`, testWorkspaceID, agentID, testUserID).Scan(&legacySessionID); err != nil {
+		t.Fatalf("setup: create legacy chat session: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM chat_session WHERE id = $1`, legacySessionID) })
+
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO agent_task_queue (
+			agent_id, runtime_id, chat_session_id,
+			status, priority, started_at, completed_at,
+			session_id, work_dir
+		)
+		VALUES ($1, $2, $3, 'completed', 0, now(), now(), 'legacy-fallback-session', '/tmp/legacy-fallback-workdir')
+	`, agentID, runtimeID, legacySessionID); err != nil {
+		t.Fatalf("setup: create matching-runtime prior task: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO agent_task_queue (
+			agent_id, runtime_id, chat_session_id,
+			status, priority
+		)
+		VALUES ($1, $2, $3, 'queued', 0)
+	`, agentID, runtimeID, legacySessionID); err != nil {
+		t.Fatalf("setup: create current chat task: %v", err)
+	}
+
+	task := claimTaskForRuntimeGuard(t, runtimeID, daemonID)
+	if task.PriorSessionID != "legacy-fallback-session" {
+		t.Fatalf("legacy fallback: expected PriorSessionID='legacy-fallback-session', got %q", task.PriorSessionID)
+	}
+	if task.PriorWorkDir != "/tmp/legacy-fallback-workdir" {
+		t.Fatalf("legacy fallback: expected PriorWorkDir='/tmp/legacy-fallback-workdir', got %q", task.PriorWorkDir)
+	}
+}
