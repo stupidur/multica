@@ -666,7 +666,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                     </Button>
                   }
                 />
-                <TooltipContent side="bottom">Archive</TooltipContent>
+                <TooltipContent side="bottom">{t(($) => $.detail.archive_tooltip)}</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>
