@@ -24,10 +24,12 @@ import { useChatStore } from "@multica/core/chat";
 import { useDeleteChatSession } from "@multica/core/chat/mutations";
 import { createLogger } from "@multica/core/logger";
 import type { ChatSession, Agent } from "@multica/core/types";
+import { useT } from "../../i18n";
 
 const logger = createLogger("chat.ui");
 
 export function ChatSessionHistory() {
+  const { t } = useT("chat");
   const wsId = useWorkspaceId();
   const setShowHistory = useChatStore((s) => s.setShowHistory);
   const setActiveSession = useChatStore((s) => s.setActiveSession);
@@ -86,9 +88,9 @@ export function ChatSessionHistory() {
           >
             <ArrowLeft />
           </TooltipTrigger>
-          <TooltipContent side="bottom">Back</TooltipContent>
+          <TooltipContent side="bottom">{t(($) => $.session_history.back_tooltip)}</TooltipContent>
         </Tooltip>
-        <span className="text-sm font-medium">Chat History</span>
+        <span className="text-sm font-medium">{t(($) => $.session_history.header)}</span>
       </div>
 
       {/* Session list */}
@@ -96,7 +98,7 @@ export function ChatSessionHistory() {
         {sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
             <MessageSquare className="size-6" />
-            <span className="text-sm">No chat sessions yet</span>
+            <span className="text-sm">{t(($) => $.session_history.empty)}</span>
           </div>
         ) : (
           <div>
@@ -122,28 +124,49 @@ export function ChatSessionHistory() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete chat session</AlertDialogTitle>
+            <AlertDialogTitle>{t(($) => $.session_history.delete_dialog.title)}</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete?.title
-                ? `"${pendingDelete.title}" and its messages will be permanently removed.`
-                : "This chat session and its messages will be permanently removed."}
-              {" "}This action cannot be undone.
+                ? t(($) => $.session_history.delete_dialog.description_with_title, { title: pendingDelete.title })
+                : t(($) => $.session_history.delete_dialog.description_default)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteSession.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteSession.isPending}>
+              {t(($) => $.session_history.delete_dialog.cancel)}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
               disabled={deleteSession.isPending}
               className="bg-destructive text-white hover:bg-destructive/90"
             >
-              {deleteSession.isPending ? "Deleting..." : "Delete"}
+              {deleteSession.isPending
+                ? t(($) => $.session_history.delete_dialog.confirming)
+                : t(($) => $.session_history.delete_dialog.confirm)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   );
+}
+
+function useFormatTimeAgo(): (dateStr: string) => string {
+  const { t } = useT("chat");
+  return (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return t(($) => $.session_history.time.just_now);
+    if (diffMins < 60) return t(($) => $.session_history.time.minutes, { count: diffMins });
+    if (diffHours < 24) return t(($) => $.session_history.time.hours, { count: diffHours });
+    if (diffDays < 7) return t(($) => $.session_history.time.days, { count: diffDays });
+    return date.toLocaleDateString();
+  };
 }
 
 function SessionItem({
@@ -159,6 +182,8 @@ function SessionItem({
   onSelect: () => void;
   onRequestDelete: () => void;
 }) {
+  const { t } = useT("chat");
+  const formatTimeAgo = useFormatTimeAgo();
   const timeAgo = formatTimeAgo(session.updated_at);
 
   return (
@@ -182,7 +207,7 @@ function SessionItem({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium">
-              {session.title || "Untitled"}
+              {session.title || t(($) => $.session_history.untitled)}
             </span>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
@@ -206,29 +231,14 @@ function SessionItem({
                 e.stopPropagation();
                 onRequestDelete();
               }}
-              aria-label="Delete chat session"
+              aria-label={t(($) => $.session_history.row_delete_aria)}
             />
           }
         >
           <Trash2 className="size-3.5" />
         </TooltipTrigger>
-        <TooltipContent side="left">Delete</TooltipContent>
+        <TooltipContent side="left">{t(($) => $.session_history.row_delete_tooltip)}</TooltipContent>
       </Tooltip>
     </div>
   );
-}
-
-function formatTimeAgo(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }
