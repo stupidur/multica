@@ -144,8 +144,17 @@ export function InboxPage() {
   };
 
   const handleArchive = (id: string) => {
-    const archived = items.find((i) => i.id === id);
-    if (archived && (archived.issue_id ?? archived.id) === selectedKey) setSelectedKey("");
+    const idx = items.findIndex((i) => i.id === id);
+    const archived = idx >= 0 ? items[idx] : null;
+    const wasSelected =
+      !!archived && (archived.issue_id ?? archived.id) === selectedKey;
+    if (wasSelected) {
+      // List is sorted newest-first; prefer the next (older) item, fall back
+      // to the previous (newer) one when archiving at the bottom, and only
+      // clear the selection when nothing else is left.
+      const next = items[idx + 1] ?? items[idx - 1] ?? null;
+      setSelectedKey(next ? (next.issue_id ?? next.id) : "");
+    }
     archiveMutation.mutate(id, {
       onError: () => toast.error(t(($) => $.errors.archive_failed)),
     });
@@ -265,10 +274,7 @@ export function InboxPage() {
         setSelectedKey("");
       }}
       onDone={() => {
-        setSelectedKey("");
-        archiveMutation.mutate(selected.id, {
-          onError: () => toast.error(t(($) => $.errors.archive_failed)),
-        });
+        handleArchive(selected.id);
       }}
     />
   ) : selected ? (
