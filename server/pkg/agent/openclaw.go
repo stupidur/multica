@@ -8,9 +8,24 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// minOpenclawVersion is the lowest openclaw version that emits its
+// --json result on stdout. PR #2101 swapped the adapter from reading
+// stderr to stdout; older builds wrote JSON to stderr and now appear
+// to silently produce no output. The check in Execute fails fast with
+// a hardcoded upgrade hint so users see an actionable message instead
+// of "openclaw returned no parseable output".
+const minOpenclawVersion = "2026.5.5"
+
+// openclawVersionPattern extracts a three-segment dotted version from
+// arbitrary `openclaw --version` output (e.g. "openclaw 2026.5.5",
+// "openclaw v2026.5.5 c37871e").
+var openclawVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
 
 // openclawBlockedArgs are flags hardcoded by the daemon that must not be
 // overridden by user-configured custom_args.
@@ -37,6 +52,10 @@ func (b *openclawBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	}
 	if _, err := exec.LookPath(execPath); err != nil {
 		return nil, fmt.Errorf("openclaw executable not found at %q: %w", execPath, err)
+	}
+
+	if err := checkOpenclawVersion(ctx, execPath); err != nil {
+		return nil, err
 	}
 
 	timeout := opts.Timeout
@@ -186,6 +205,59 @@ func customArgsContains(args []string, flag string) bool {
 		}
 	}
 	return false
+}
+
+// checkOpenclawVersion runs `<execPath> --version` and returns a
+// user-facing error when the installed openclaw is older than
+// minOpenclawVersion. The returned error becomes the task's failure
+// comment, so the message intentionally names the detected version
+// and the upgrade command.
+func checkOpenclawVersion(ctx context.Context, execPath string) error {
+	cmd := exec.CommandContext(ctx, execPath, "--version")
+	hideAgentWindow(cmd)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("openclaw --version failed: %w", err)
+	}
+	detected, ok := parseOpenclawVersion(string(out))
+	if !ok {
+		return fmt.Errorf("could not parse openclaw version from output: %q", strings.TrimSpace(string(out)))
+	}
+	if compareOpenclawVersion(detected, minOpenclawVersion) < 0 {
+		return fmt.Errorf("openclaw %s is below the minimum supported version %s. Run `openclaw update` to upgrade and try again.", detected, minOpenclawVersion)
+	}
+	return nil
+}
+
+// parseOpenclawVersion extracts the first three-segment dotted version
+// from arbitrary `openclaw --version` output. Returns ok=false when no
+// match is found.
+func parseOpenclawVersion(raw string) (string, bool) {
+	m := openclawVersionPattern.FindString(raw)
+	if m == "" {
+		return "", false
+	}
+	return m, true
+}
+
+// compareOpenclawVersion compares two three-segment dotted versions
+// numerically. Returns -1, 0, or +1 like bytes.Compare. Inputs must be
+// well-formed (matched by openclawVersionPattern); malformed segments
+// compare as zero.
+func compareOpenclawVersion(a, b string) int {
+	aParts := strings.SplitN(a, ".", 3)
+	bParts := strings.SplitN(b, ".", 3)
+	for i := 0; i < 3; i++ {
+		ai, _ := strconv.Atoi(aParts[i])
+		bi, _ := strconv.Atoi(bParts[i])
+		if ai < bi {
+			return -1
+		}
+		if ai > bi {
+			return 1
+		}
+	}
+	return 0
 }
 
 // ── Event handlers ──
