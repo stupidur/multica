@@ -83,7 +83,10 @@ export function ChatWindow() {
   );
   const pendingTaskId = pendingTask?.task_id ?? null;
 
-  // Check if current session is archived
+  // Legacy archived sessions (the old soft-archive feature was removed but
+  // pre-existing rows with status='archived' may still exist) render as
+  // read-only: history list keeps showing them, but ChatInput is disabled
+  // and the server still rejects POST /messages for them.
   const currentSession = activeSessionId
     ? allSessions.find((s) => s.id === activeSessionId)
     : null;
@@ -470,7 +473,7 @@ export function ChatWindow() {
         <OfflineBanner agentName={activeAgent?.name} availability={availability} />
       )}
 
-      {/* Input — disabled for archived sessions; locked out entirely
+      {/* Input — disabled for legacy archived sessions; locked out entirely
        *  when there's no agent (the EmptyState above carries the CTA). */}
       <ChatInput
         onSend={handleSend}
