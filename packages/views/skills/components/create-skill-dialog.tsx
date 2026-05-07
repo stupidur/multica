@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
 import type { Skill } from "@multica/core/types";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { isImeComposing } from "@multica/core/utils";
 import {
   skillDetailOptions,
   workspaceKeys,
@@ -163,6 +164,7 @@ function ManualForm({
             }}
             placeholder={t(($) => $.create.manual.name_placeholder)}
             onKeyDown={(e) => {
+              if (isImeComposing(e)) return;
               if (e.key === "Enter") submit();
             }}
           />
