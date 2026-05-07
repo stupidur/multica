@@ -559,6 +559,29 @@ func (q *Queries) TouchAgentRuntimeLastSeen(ctx context.Context, id pgtype.UUID)
 	return result.RowsAffected(), nil
 }
 
+const touchAgentRuntimesLastSeenBatch = `-- name: TouchAgentRuntimesLastSeenBatch :execrows
+UPDATE agent_runtime
+SET last_seen_at = now()
+WHERE id = ANY($1::uuid[]) AND status = 'online'
+`
+
+// Bulk variant of TouchAgentRuntimeLastSeen used by the BatchedHeartbeatScheduler:
+// coalesces N per-runtime "bump last_seen_at" requests into a single UPDATE so a
+// fleet beating every 15s costs ~1 DB transaction per batch tick instead of N.
+//
+// Same load-bearing predicate as the single-id form: status='online' avoids
+// silently un-deleting a sweeper-flipped offline row, and we deliberately do
+// NOT touch updated_at so the rows stay HOT-eligible. Affected-rows < len(ids)
+// means some IDs raced to offline between Schedule and flush; their next beat
+// will fall through the recordHeartbeat sync path and call MarkAgentRuntimeOnline.
+func (q *Queries) TouchAgentRuntimesLastSeenBatch(ctx context.Context, ids []pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, touchAgentRuntimesLastSeenBatch, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const upsertAgentRuntime = `-- name: UpsertAgentRuntime :one
 INSERT INTO agent_runtime (
     workspace_id,
