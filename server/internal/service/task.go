@@ -110,6 +110,10 @@ func (s *TaskService) captureTaskQueued(ctx context.Context, task db.AgentTaskQu
 	s.captureTaskEvent(ctx, analytics.AgentTaskQueued(s.taskAnalyticsContext(ctx, task)))
 }
 
+func (s *TaskService) captureTaskDispatched(ctx context.Context, task db.AgentTaskQueue) {
+	s.captureTaskEvent(ctx, analytics.AgentTaskDispatched(s.taskAnalyticsContext(ctx, task)))
+}
+
 func (s *TaskService) AnalyticsContextForTask(ctx context.Context, task db.AgentTaskQueue) analytics.TaskContext {
 	return s.taskAnalyticsContext(ctx, task)
 }
@@ -707,6 +711,7 @@ func (s *TaskService) ClaimTask(ctx context.Context, agentID pgtype.UUID) (*db.A
 	}
 
 	slog.Info("task claimed", "task_id", util.UUIDToString(task.ID), "agent_id", util.UUIDToString(agentID))
+	s.captureTaskDispatched(ctx, task)
 
 	// Refresh agent status from active tasks. This avoids a stale unconditional
 	// working write racing after a just-cancelled claim.
