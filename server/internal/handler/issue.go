@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/logger"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
@@ -1276,6 +1277,44 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("issue created", append(logger.RequestAttrs(r), "issue_id", uuidToString(issue.ID), "title", issue.Title, "status", issue.Status, "workspace_id", workspaceID)...)
 	h.publish(protocol.EventIssueCreated, workspaceID, creatorType, actualCreatorID, map[string]any{"issue": resp})
+	analyticsActorID := actualCreatorID
+	analyticsAgentID := ""
+	if issue.AssigneeType.Valid && issue.AssigneeType.String == "agent" {
+		analyticsAgentID = uuidToString(issue.AssigneeID)
+	}
+	if creatorType == "agent" {
+		analyticsActorID = "agent:" + actualCreatorID
+		if analyticsAgentID == "" {
+			analyticsAgentID = actualCreatorID
+		}
+	}
+	analyticsSource := analytics.SourceManual
+	analyticsTaskID := ""
+	analyticsAutopilotRunID := ""
+	if originType.Valid {
+		switch originType.String {
+		case "quick_create":
+			analyticsSource = analytics.SourceManual
+			analyticsTaskID = uuidToString(originID)
+		case "autopilot":
+			analyticsSource = analytics.SourceAutopilot
+			analyticsAutopilotRunID = uuidToString(originID)
+		default:
+			slog.Warn("analytics: unknown issue origin type",
+				"origin_type", originType.String,
+				"issue_id", uuidToString(issue.ID),
+			)
+		}
+	}
+	h.Analytics.Capture(analytics.IssueCreated(
+		analyticsActorID,
+		workspaceID,
+		uuidToString(issue.ID),
+		analyticsAgentID,
+		analyticsTaskID,
+		analyticsAutopilotRunID,
+		analyticsSource,
+	))
 
 	// Enqueue agent task when an agent-assigned issue is created.
 	if issue.AssigneeType.Valid && issue.AssigneeID.Valid {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -95,6 +96,17 @@ func sweepStaleRuntimes(ctx context.Context, queries *db.Queries, liveness handl
 		// All filtered candidates raced into a non-online state between the
 		// SELECT and the UPDATE. Nothing to broadcast.
 		return
+	}
+	if taskSvc != nil && taskSvc.Analytics != nil {
+		for _, row := range staleRows {
+			taskSvc.Analytics.Capture(analytics.RuntimeOffline(
+				util.UUIDToString(row.OwnerID),
+				util.UUIDToString(row.WorkspaceID),
+				util.UUIDToString(row.ID),
+				row.DaemonID.String,
+				row.Provider,
+			))
+		}
 	}
 
 	// Collect unique workspace IDs to notify.
