@@ -11,7 +11,6 @@ import type { Workspace } from "@multica/core/types";
 import { isImeComposing } from "@multica/core/utils";
 import {
   WORKSPACE_SLUG_REGEX,
-  WORKSPACE_SLUG_RESERVED_ERROR,
   isWorkspaceSlugConflict,
   nameToWorkspaceSlug,
 } from "./slug";
@@ -34,7 +33,10 @@ export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
     slug.length > 0 && !WORKSPACE_SLUG_REGEX.test(slug)
       ? t(($) => $.create_form.errors.slug_format)
       : null;
-  const slugReservedError = slug.length > 0 && isReservedSlug(slug) ? WORKSPACE_SLUG_RESERVED_ERROR : null;
+  const slugReservedError =
+    slug.length > 0 && isReservedSlug(slug)
+      ? t(($) => $.create_form.errors.slug_reserved)
+      : null;
   const slugError = slugValidationError ?? slugReservedError ?? slugServerError;
   const canSubmit =
     name.trim().length > 0 && slug.trim().length > 0 && !slugError;
