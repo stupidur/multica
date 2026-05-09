@@ -353,8 +353,13 @@ WHERE runtime_id = $1 AND status = 'queued'
 ORDER BY priority DESC, created_at ASC;
 
 -- name: ListActiveTasksByIssue :many
+-- Backs the issue-detail "agent live" banner. Includes 'queued' so the
+-- banner shows up the moment a task is enqueued — not only after a runtime
+-- claims it. The queued window can be long when the runtime is offline or
+-- busy on a prior task, and a silent UI during that window looks like the
+-- platform never received the trigger.
 SELECT * FROM agent_task_queue
-WHERE issue_id = $1 AND status IN ('dispatched', 'running')
+WHERE issue_id = $1 AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at DESC;
 
 -- name: GetWorkspaceAgentRunCounts :many

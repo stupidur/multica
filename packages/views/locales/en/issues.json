@@ -198,6 +198,8 @@
   },
   "agent_live": {
     "is_working": "{{name}} is working",
+    "is_queued": "{{name}} is queued",
+    "queued_elapsed_prefix": "queued for {{elapsed}}",
     "fallback_name": "Agent",
     "tool_count_one": "{{count}} tool",
     "tool_count_other": "{{count}} tools",

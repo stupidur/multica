@@ -1249,10 +1249,15 @@ func (q *Queries) LinkTaskToIssue(ctx context.Context, arg LinkTaskToIssueParams
 
 const listActiveTasksByIssue = `-- name: ListActiveTasksByIssue :many
 SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session FROM agent_task_queue
-WHERE issue_id = $1 AND status IN ('dispatched', 'running')
+WHERE issue_id = $1 AND status IN ('queued', 'dispatched', 'running')
 ORDER BY created_at DESC
 `
 
+// Backs the issue-detail "agent live" banner. Includes 'queued' so the
+// banner shows up the moment a task is enqueued — not only after a runtime
+// claims it. The queued window can be long when the runtime is offline or
+// busy on a prior task, and a silent UI during that window looks like the
+// platform never received the trigger.
 func (q *Queries) ListActiveTasksByIssue(ctx context.Context, issueID pgtype.UUID) ([]AgentTaskQueue, error) {
 	rows, err := q.db.Query(ctx, listActiveTasksByIssue, issueID)
 	if err != nil {
