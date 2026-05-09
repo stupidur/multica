@@ -133,11 +133,7 @@
     "workdir_path_unavailable": "暂无本地 workdir — 这个 issue 还没被本地 agent 运行过"
   },
   "timeline": {
-    "show_older": "显示更早",
-    "show_newer": "显示更晚",
-    "loading": "加载中…",
-    "jump_to_latest": "跳到最新",
-    "jump_to_latest_with_count": "跳到最新 · {{count}} 条新动态"
+    "loading": "加载中…"
   },
   "activity": {
     "created": "创建了这个 issue",
