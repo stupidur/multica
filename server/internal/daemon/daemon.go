@@ -1513,28 +1513,7 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 		}
 	}
 
-	switch result.Status {
-	case "blocked":
-		// Forward SessionID/WorkDir even on the blocked path: the agent may
-		// have built a real session before getting stuck (rate-limit, tool
-		// error, etc.) and we want the next chat turn to resume there
-		// rather than start over and "forget" the conversation.
-		failureReason := result.FailureReason
-		if failureReason == "" {
-			failureReason = "agent_error"
-		}
-		if err := d.client.FailTask(ctx, task.ID, result.Comment, result.SessionID, result.WorkDir, failureReason); err != nil {
-			taskLog.Error("report blocked task failed", "error", err)
-		}
-	default:
-		taskLog.Info("task completed", "status", result.Status)
-		if err := d.client.CompleteTask(ctx, task.ID, result.Comment, result.BranchName, result.SessionID, result.WorkDir); err != nil {
-			taskLog.Error("complete task failed, falling back to fail", "error", err)
-			if failErr := d.client.FailTask(ctx, task.ID, fmt.Sprintf("complete task failed: %s", err.Error()), result.SessionID, result.WorkDir, "agent_error"); failErr != nil {
-				taskLog.Error("fail task fallback also failed", "error", failErr)
-			}
-		}
-	}
+	d.reportTaskResult(ctx, task.ID, result, taskLog)
 
 	// Write GC metadata after the task finishes so the periodic GC loop
 	// can look up the parent record (issue / chat session / autopilot run /
@@ -1545,6 +1524,42 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 			if err := execenv.WriteGCMeta(result.EnvRoot, meta, taskLog); err != nil {
 				taskLog.Warn("write gc meta failed (non-fatal)", "error", err)
 			}
+		}
+	}
+}
+
+// reportTaskResult writes the final task disposition back to the server.
+//
+// Fail closed: only an explicit "completed" status is reported as success.
+// Anything else — "blocked", "cancelled", or any future status we forget to
+// enumerate — must go through FailTask, so a run that never produced a real
+// result can never be displayed as "Completed" in the UI (e.g. provider 429 /
+// out-of-credit / runtime crash). Forward SessionID/WorkDir on every path:
+// the agent may have built a real session before getting stuck, and we want
+// the next chat turn to resume there rather than start over and "forget"
+// the conversation.
+func (d *Daemon) reportTaskResult(ctx context.Context, taskID string, result TaskResult, taskLog *slog.Logger) {
+	switch result.Status {
+	case "completed":
+		taskLog.Info("task completed", "status", result.Status)
+		if err := d.client.CompleteTask(ctx, taskID, result.Comment, result.BranchName, result.SessionID, result.WorkDir); err != nil {
+			taskLog.Error("complete task failed, falling back to fail", "error", err)
+			if failErr := d.client.FailTask(ctx, taskID, fmt.Sprintf("complete task failed: %s", err.Error()), result.SessionID, result.WorkDir, "agent_error"); failErr != nil {
+				taskLog.Error("fail task fallback also failed", "error", failErr)
+			}
+		}
+	default:
+		failureReason := result.FailureReason
+		if failureReason == "" {
+			if result.Status == "cancelled" {
+				failureReason = "cancelled"
+			} else {
+				failureReason = "agent_error"
+			}
+		}
+		taskLog.Info("task did not complete, reporting failure", "status", result.Status, "failure_reason", failureReason)
+		if err := d.client.FailTask(ctx, taskID, result.Comment, result.SessionID, result.WorkDir, failureReason); err != nil {
+			taskLog.Error("report failed task failed", "error", err)
 		}
 	}
 }
