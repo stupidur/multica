@@ -33,9 +33,11 @@ import {
   WORKSPACE_SLUG_CONFLICT_ERROR,
   WORKSPACE_SLUG_FORMAT_ERROR,
   WORKSPACE_SLUG_REGEX,
+  WORKSPACE_SLUG_RESERVED_ERROR,
   isWorkspaceSlugConflict,
   nameToWorkspaceSlug,
 } from "../../workspace/slug";
+import { isReservedSlug } from "@multica/core/paths";
 
 /**
  * Step 2 — create your first workspace, or continue with one set up in
@@ -104,7 +106,8 @@ export function StepWorkspace({
     slug.length > 0 && !WORKSPACE_SLUG_REGEX.test(slug)
       ? WORKSPACE_SLUG_FORMAT_ERROR
       : null;
-  const slugError = slugValidationError ?? slugServerError;
+  const slugReservedError = slug.length > 0 && isReservedSlug(slug) ? WORKSPACE_SLUG_RESERVED_ERROR : null;
+  const slugError = slugValidationError ?? slugReservedError ?? slugServerError;
   const canCreate =
     name.trim().length > 0 && slug.trim().length > 0 && !slugError;
 
