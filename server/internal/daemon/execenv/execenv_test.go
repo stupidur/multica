@@ -202,7 +202,7 @@ func TestPrepareWithProjectResources(t *testing.T) {
 	}
 
 	// CLAUDE.md should mention the project context block.
-	if err := InjectRuntimeConfig(env.WorkDir, "claude", taskCtx); err != nil {
+	if _, err := InjectRuntimeConfig(env.WorkDir, "claude", taskCtx); err != nil {
 		t.Fatalf("InjectRuntimeConfig: %v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(env.WorkDir, "CLAUDE.md"))
@@ -250,7 +250,7 @@ func TestProjectReposReplaceWorkspaceReposInMetaSkill(t *testing.T) {
 			},
 		},
 	}
-	if err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig: %v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -302,7 +302,7 @@ func TestPrepareWithRepoContext(t *testing.T) {
 	defer env.Cleanup(true)
 
 	// Inject runtime config (done separately in daemon, replicate here).
-	if err := InjectRuntimeConfig(env.WorkDir, "claude", taskCtx); err != nil {
+	if _, err := InjectRuntimeConfig(env.WorkDir, "claude", taskCtx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -561,7 +561,7 @@ func TestInjectRuntimeConfigClaude(t *testing.T) {
 		},
 	}
 
-	if err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -594,7 +594,7 @@ func TestInjectRuntimeConfigGemini(t *testing.T) {
 		AgentSkills: []SkillContextForEnv{{Name: "Writing", Content: "Write clearly."}},
 	}
 
-	if err := InjectRuntimeConfig(dir, "gemini", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "gemini", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -632,7 +632,7 @@ func TestInjectRuntimeConfigCodex(t *testing.T) {
 		AgentSkills: []SkillContextForEnv{{Name: "Coding", Content: "Write good code."}},
 	}
 
-	if err := InjectRuntimeConfig(dir, "codex", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "codex", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -656,7 +656,7 @@ func TestInjectRuntimeConfigNoSkills(t *testing.T) {
 
 	ctx := TaskContextForEnv{IssueID: "test-issue-id"}
 
-	if err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -810,7 +810,7 @@ func TestInjectRuntimeConfigOpencode(t *testing.T) {
 		AgentSkills: []SkillContextForEnv{{Name: "Coding", Content: "Write good code."}},
 	}
 
-	if err := InjectRuntimeConfig(dir, "opencode", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "opencode", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -846,7 +846,7 @@ func TestInjectRuntimeConfigKiro(t *testing.T) {
 		AgentSkills: []SkillContextForEnv{{Name: "Coding", Content: "Write good code."}},
 	}
 
-	if err := InjectRuntimeConfig(dir, "kiro", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "kiro", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -890,7 +890,7 @@ func TestPrepareWithRepoContextOpencode(t *testing.T) {
 	}
 	defer env.Cleanup(true)
 
-	if err := InjectRuntimeConfig(env.WorkDir, "opencode", taskCtx); err != nil {
+	if _, err := InjectRuntimeConfig(env.WorkDir, "opencode", taskCtx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -946,7 +946,7 @@ func TestInjectRuntimeConfigRequiresExplicitCommentPost(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			if err := InjectRuntimeConfig(dir, "claude", tc.ctx); err != nil {
+			if _, err := InjectRuntimeConfig(dir, "claude", tc.ctx); err != nil {
 				t.Fatalf("InjectRuntimeConfig failed: %v", err)
 			}
 			data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -992,7 +992,7 @@ func TestInjectRuntimeConfigRequiresExplicitCommentPost(t *testing.T) {
 func TestInjectRuntimeConfigDirectsMultiLineWritesToStdin(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := InjectRuntimeConfig(dir, "claude", TaskContextForEnv{IssueID: "issue-1"}); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "claude", TaskContextForEnv{IssueID: "issue-1"}); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -1018,7 +1018,7 @@ func TestInjectRuntimeConfigDirectsMultiLineWritesToStdin(t *testing.T) {
 func TestInjectRuntimeConfigCodexEmphasizesStdinForFormattedComments(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := InjectRuntimeConfig(dir, "codex", TaskContextForEnv{
+	if _, err := InjectRuntimeConfig(dir, "codex", TaskContextForEnv{
 		IssueID:          "issue-1",
 		TriggerCommentID: "comment-1",
 	}); err != nil {
@@ -1056,7 +1056,7 @@ func TestInjectRuntimeConfigAutopilotRunOnlyNoIssueWorkflow(t *testing.T) {
 		AutopilotSource:      "manual",
 	}
 
-	if err := InjectRuntimeConfig(dir, "codex", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "codex", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
@@ -1092,7 +1092,7 @@ func TestInjectRuntimeConfigUnknownProvider(t *testing.T) {
 	dir := t.TempDir()
 
 	// Unknown provider should be a no-op.
-	if err := InjectRuntimeConfig(dir, "unknown", TaskContextForEnv{}); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "unknown", TaskContextForEnv{}); err != nil {
 		t.Fatalf("expected no error for unknown provider, got: %v", err)
 	}
 
@@ -1112,7 +1112,7 @@ func TestInjectRuntimeConfigHermes(t *testing.T) {
 		AgentSkills: []SkillContextForEnv{{Name: "Coding", Content: "Write good code."}},
 	}
 
-	if err := InjectRuntimeConfig(dir, "hermes", ctx); err != nil {
+	if _, err := InjectRuntimeConfig(dir, "hermes", ctx); err != nil {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 
@@ -2093,7 +2093,7 @@ func TestInjectRuntimeConfigMentionLoopHardening(t *testing.T) {
 	readClaudeMD := func(t *testing.T, ctx TaskContextForEnv) string {
 		t.Helper()
 		dir := t.TempDir()
-		if err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
+		if _, err := InjectRuntimeConfig(dir, "claude", ctx); err != nil {
 			t.Fatalf("InjectRuntimeConfig failed: %v", err)
 		}
 		data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))

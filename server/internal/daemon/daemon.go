@@ -1708,7 +1708,8 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	}
 
 	// Inject runtime-specific config (meta skill) so the agent discovers .agent_context/.
-	if err := execenv.InjectRuntimeConfig(env.WorkDir, provider, taskCtx); err != nil {
+	runtimeBrief, err := execenv.InjectRuntimeConfig(env.WorkDir, provider, taskCtx)
+	if err != nil {
 		d.logger.Warn("execenv: inject runtime config failed (non-fatal)", "error", err)
 	}
 	// NOTE: No cleanup — workdir is preserved for reuse by future tasks on
@@ -1838,7 +1839,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// can prepend them to the turn payload instead of relying only on file
 	// discovery.
 	if providerNeedsInlineSystemPrompt(provider) {
-		execOpts.SystemPrompt = instructions
+		execOpts.SystemPrompt = runtimeBrief
 	}
 
 	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
