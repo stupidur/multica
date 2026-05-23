@@ -82,6 +82,13 @@ export function proxy(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // --- Root path: send everyone else to login instead of landing page ---
+  if (pathname === "/") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
   // --- Default: forward locale header to RSC, no redirect/rewrite ---
   // Covers logged-out root path, /login, /:slug/*, and everything else.
   return nextWithLocale(req);
