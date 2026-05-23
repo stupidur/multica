@@ -11,9 +11,15 @@ import {
   FlaskConical,
   Bell,
   Plug,
+  LockKeyhole,
 } from "lucide-react";
 import { GitHubMark } from "./github-mark";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@multica/ui/components/ui/tabs";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@multica/ui/components/ui/tabs";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { useNavigation } from "../../navigation";
 import { AccountTab } from "./account-tab";
@@ -26,11 +32,19 @@ import { GitHubTab } from "./github-tab";
 import { IntegrationsTab } from "./integrations-tab";
 import { LabsTab } from "./labs-tab";
 import { NotificationsTab } from "./notifications-tab";
+import { PasswordTab } from "./password-tab";
 import { useT } from "../../i18n";
 
-const ACCOUNT_TAB_KEYS = ["profile", "preferences", "notifications", "tokens"] as const;
+const ACCOUNT_TAB_KEYS = [
+  "profile",
+  "password",
+  "preferences",
+  "notifications",
+  "tokens",
+] as const;
 const ACCOUNT_TAB_ICONS = {
   profile: User,
+  password: LockKeyhole,
   preferences: SlidersHorizontal,
   notifications: Bell,
   tokens: Key,
@@ -115,7 +129,9 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
     >
       {/* Left nav (stacks on top on mobile, sidebar on md+) */}
       <div className="shrink-0 md:w-52 border-b md:border-b-0 md:border-r md:overflow-y-auto p-3 md:p-4">
-        <h1 className="text-sm font-semibold mb-4 px-2">{t(($) => $.page.title)}</h1>
+        <h1 className="text-sm font-semibold mb-4 px-2">
+          {t(($) => $.page.title)}
+        </h1>
         <TabsList variant="line" className="flex-col items-stretch w-full">
           {/* My Account group */}
           <span className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
@@ -156,18 +172,43 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
       {/* Right content */}
       <div className="flex-1 min-w-0 md:overflow-y-auto">
         <div className="w-full max-w-3xl mx-auto p-4 md:p-6">
-          <TabsContent value="profile"><AccountTab /></TabsContent>
-          <TabsContent value="preferences"><PreferencesTab /></TabsContent>
-          <TabsContent value="notifications"><NotificationsTab /></TabsContent>
-          <TabsContent value="tokens"><TokensTab /></TabsContent>
-          <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
-          <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
-          <TabsContent value="github"><GitHubTab /></TabsContent>
-          <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
-          <TabsContent value="labs"><LabsTab /></TabsContent>
-          <TabsContent value="members"><MembersTab /></TabsContent>
+          <TabsContent value="profile">
+            <AccountTab />
+          </TabsContent>
+          <TabsContent value="password">
+            <PasswordTab />
+          </TabsContent>
+          <TabsContent value="preferences">
+            <PreferencesTab />
+          </TabsContent>
+          <TabsContent value="notifications">
+            <NotificationsTab />
+          </TabsContent>
+          <TabsContent value="tokens">
+            <TokensTab />
+          </TabsContent>
+          <TabsContent value="workspace">
+            <WorkspaceTab />
+          </TabsContent>
+          <TabsContent value="repositories">
+            <RepositoriesTab />
+          </TabsContent>
+          <TabsContent value="github">
+            <GitHubTab />
+          </TabsContent>
+          <TabsContent value="integrations">
+            <IntegrationsTab />
+          </TabsContent>
+          <TabsContent value="labs">
+            <LabsTab />
+          </TabsContent>
+          <TabsContent value="members">
+            <MembersTab />
+          </TabsContent>
           {extraAccountTabs?.map((tab) => (
-            <TabsContent key={tab.value} value={tab.value}>{tab.content}</TabsContent>
+            <TabsContent key={tab.value} value={tab.value}>
+              {tab.content}
+            </TabsContent>
           ))}
         </div>
       </div>

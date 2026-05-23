@@ -183,7 +183,12 @@ export class ApiError extends Error {
   // identifiers instead of pattern-matching the human-readable message.
   readonly body?: unknown;
 
-  constructor(message: string, status: number, statusText: string, body?: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    statusText: string,
+    body?: unknown,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -238,7 +243,7 @@ export class ApiClient {
     const match = document.cookie
       .split("; ")
       .find((c) => c.startsWith("multica_csrf="));
-    return match ? match.split("=")[1] ?? null : null;
+    return match ? (match.split("=")[1] ?? null) : null;
   }
 
   private authHeaders(): Record<string, string> {
@@ -264,9 +269,12 @@ export class ApiClient {
     this.options.onUnauthorized?.();
   }
 
-  private async parseErrorMessage(res: Response, fallback: string): Promise<string> {
+  private async parseErrorMessage(
+    res: Response,
+    fallback: string,
+  ): Promise<string> {
     try {
-      const data = await res.json() as { error?: string };
+      const data = (await res.json()) as { error?: string };
       if (typeof data.error === "string" && data.error) return data.error;
     } catch {
       // Ignore non-JSON error bodies.
@@ -277,10 +285,14 @@ export class ApiClient {
   // Reads the response body once for both human-readable error message and
   // structured fields. The Response stream can only be consumed once, so
   // both pieces have to come from a single read.
-  private async parseErrorBody(res: Response, fallback: string): Promise<{ message: string; body: unknown }> {
+  private async parseErrorBody(
+    res: Response,
+    fallback: string,
+  ): Promise<{ message: string; body: unknown }> {
     try {
-      const data = await res.json() as { error?: string };
-      const message = typeof data.error === "string" && data.error ? data.error : fallback;
+      const data = (await res.json()) as { error?: string };
+      const message =
+        typeof data.error === "string" && data.error ? data.error : fallback;
       return { message, body: data };
     } catch {
       return { message: fallback, body: undefined };
@@ -317,13 +329,23 @@ export class ApiClient {
 
     if (!res.ok) {
       if (res.status === 401) this.handleUnauthorized();
-      const { message, body } = await this.parseErrorBody(res, `API error: ${res.status} ${res.statusText}`);
+      const { message, body } = await this.parseErrorBody(
+        res,
+        `API error: ${res.status} ${res.statusText}`,
+      );
       const logLevel = res.status === 404 ? "warn" : "error";
-      this.logger[logLevel](`← ${res.status} ${path}`, { rid, duration: `${Date.now() - start}ms`, error: message });
+      this.logger[logLevel](`← ${res.status} ${path}`, {
+        rid,
+        duration: `${Date.now() - start}ms`,
+        error: message,
+      });
       throw new ApiError(message, res.status, res.statusText, body);
     }
 
-    this.logger.info(`← ${res.status} ${path}`, { rid, duration: `${Date.now() - start}ms` });
+    this.logger.info(`← ${res.status} ${path}`, {
+      rid,
+      duration: `${Date.now() - start}ms`,
+    });
     return res;
   }
 
@@ -351,6 +373,13 @@ export class ApiClient {
     return this.fetch("/auth/verify-code", {
       method: "POST",
       body: JSON.stringify({ email, code }),
+    });
+  }
+
+  async passwordLogin(email: string, password: string): Promise<LoginResponse> {
+    return this.fetch("/auth/password-login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
     });
   }
 
@@ -424,6 +453,16 @@ export class ApiClient {
     });
   }
 
+  async updatePassword(data: {
+    current_password?: string;
+    new_password: string;
+  }): Promise<void> {
+    await this.fetch("/api/me/password", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
   // Issues
   async listIssues(params?: ListIssuesParams): Promise<ListIssuesResponse> {
     const search = new URLSearchParams();
@@ -433,10 +472,12 @@ export class ApiClient {
     if (params?.status) search.set("status", params.status);
     if (params?.priority) search.set("priority", params.priority);
     if (params?.assignee_id) search.set("assignee_id", params.assignee_id);
-    if (params?.assignee_ids?.length) search.set("assignee_ids", params.assignee_ids.join(","));
+    if (params?.assignee_ids?.length)
+      search.set("assignee_ids", params.assignee_ids.join(","));
     if (params?.creator_id) search.set("creator_id", params.creator_id);
     if (params?.project_id) search.set("project_id", params.project_id);
-    if (params?.involves_user_id) search.set("involves_user_id", params.involves_user_id);
+    if (params?.involves_user_id)
+      search.set("involves_user_id", params.involves_user_id);
     if (params?.metadata && Object.keys(params.metadata).length > 0) {
       search.set("metadata", JSON.stringify(params.metadata));
     }
@@ -444,59 +485,106 @@ export class ApiClient {
     if (params?.scheduled) search.set("scheduled", "true");
     const path = `/api/issues?${search}`;
     const raw = await this.fetch<unknown>(path);
-    return parseWithFallback(raw, ListIssuesResponseSchema, EMPTY_LIST_ISSUES_RESPONSE, {
-      endpoint: "GET /api/issues",
-    });
+    return parseWithFallback(
+      raw,
+      ListIssuesResponseSchema,
+      EMPTY_LIST_ISSUES_RESPONSE,
+      {
+        endpoint: "GET /api/issues",
+      },
+    );
   }
 
-  async listGroupedIssues(params: ListGroupedIssuesParams): Promise<GroupedIssuesResponse> {
+  async listGroupedIssues(
+    params: ListGroupedIssuesParams,
+  ): Promise<GroupedIssuesResponse> {
     const search = new URLSearchParams({ group_by: params.group_by });
     if (params.limit) search.set("limit", String(params.limit));
     if (params.offset) search.set("offset", String(params.offset));
     if (params.workspace_id) search.set("workspace_id", params.workspace_id);
-    if (params.statuses?.length) search.set("statuses", params.statuses.join(","));
-    if (params.priorities?.length) search.set("priorities", params.priorities.join(","));
-    if (params.assignee_types?.length) search.set("assignee_types", params.assignee_types.join(","));
+    if (params.statuses?.length)
+      search.set("statuses", params.statuses.join(","));
+    if (params.priorities?.length)
+      search.set("priorities", params.priorities.join(","));
+    if (params.assignee_types?.length)
+      search.set("assignee_types", params.assignee_types.join(","));
     if (params.assignee_id) search.set("assignee_id", params.assignee_id);
-    if (params.assignee_ids?.length) search.set("assignee_ids", params.assignee_ids.join(","));
+    if (params.assignee_ids?.length)
+      search.set("assignee_ids", params.assignee_ids.join(","));
     if (params.creator_id) search.set("creator_id", params.creator_id);
     if (params.project_id) search.set("project_id", params.project_id);
-    if (params.involves_user_id) search.set("involves_user_id", params.involves_user_id);
+    if (params.involves_user_id)
+      search.set("involves_user_id", params.involves_user_id);
     if (params.metadata && Object.keys(params.metadata).length > 0) {
       search.set("metadata", JSON.stringify(params.metadata));
     }
     if (params.assignee_filters?.length) {
-      search.set("assignee_filters", params.assignee_filters.map((f) => `${f.type}:${f.id}`).join(","));
+      search.set(
+        "assignee_filters",
+        params.assignee_filters.map((f) => `${f.type}:${f.id}`).join(","),
+      );
     }
     if (params.include_no_assignee) search.set("include_no_assignee", "true");
     if (params.creator_filters?.length) {
-      search.set("creator_filters", params.creator_filters.map((f) => `${f.type}:${f.id}`).join(","));
+      search.set(
+        "creator_filters",
+        params.creator_filters.map((f) => `${f.type}:${f.id}`).join(","),
+      );
     }
-    if (params.project_ids?.length) search.set("project_ids", params.project_ids.join(","));
+    if (params.project_ids?.length)
+      search.set("project_ids", params.project_ids.join(","));
     if (params.include_no_project) search.set("include_no_project", "true");
-    if (params.label_ids?.length) search.set("label_ids", params.label_ids.join(","));
-    if (params.group_assignee_type) search.set("group_assignee_type", params.group_assignee_type);
-    if (params.group_assignee_id) search.set("group_assignee_id", params.group_assignee_id);
+    if (params.label_ids?.length)
+      search.set("label_ids", params.label_ids.join(","));
+    if (params.group_assignee_type)
+      search.set("group_assignee_type", params.group_assignee_type);
+    if (params.group_assignee_id)
+      search.set("group_assignee_id", params.group_assignee_id);
     const raw = await this.fetch<unknown>(`/api/issues/grouped?${search}`);
-    return parseWithFallback(raw, GroupedIssuesResponseSchema, EMPTY_GROUPED_ISSUES_RESPONSE, {
-      endpoint: "GET /api/issues/grouped",
-    });
+    return parseWithFallback(
+      raw,
+      GroupedIssuesResponseSchema,
+      EMPTY_GROUPED_ISSUES_RESPONSE,
+      {
+        endpoint: "GET /api/issues/grouped",
+      },
+    );
   }
 
-  async searchIssues(params: { q: string; limit?: number; offset?: number; include_closed?: boolean; signal?: AbortSignal }): Promise<SearchIssuesResponse> {
+  async searchIssues(params: {
+    q: string;
+    limit?: number;
+    offset?: number;
+    include_closed?: boolean;
+    signal?: AbortSignal;
+  }): Promise<SearchIssuesResponse> {
     const search = new URLSearchParams({ q: params.q });
     if (params.limit !== undefined) search.set("limit", String(params.limit));
-    if (params.offset !== undefined) search.set("offset", String(params.offset));
+    if (params.offset !== undefined)
+      search.set("offset", String(params.offset));
     if (params.include_closed) search.set("include_closed", "true");
-    return this.fetch(`/api/issues/search?${search}`, params.signal ? { signal: params.signal } : undefined);
+    return this.fetch(
+      `/api/issues/search?${search}`,
+      params.signal ? { signal: params.signal } : undefined,
+    );
   }
 
-  async searchProjects(params: { q: string; limit?: number; offset?: number; include_closed?: boolean; signal?: AbortSignal }): Promise<SearchProjectsResponse> {
+  async searchProjects(params: {
+    q: string;
+    limit?: number;
+    offset?: number;
+    include_closed?: boolean;
+    signal?: AbortSignal;
+  }): Promise<SearchProjectsResponse> {
     const search = new URLSearchParams({ q: params.q });
     if (params.limit !== undefined) search.set("limit", String(params.limit));
-    if (params.offset !== undefined) search.set("offset", String(params.offset));
+    if (params.offset !== undefined)
+      search.set("offset", String(params.offset));
     if (params.include_closed) search.set("include_closed", "true");
-    return this.fetch(`/api/projects/search?${search}`, params.signal ? { signal: params.signal } : undefined);
+    return this.fetch(
+      `/api/projects/search?${search}`,
+      params.signal ? { signal: params.signal } : undefined,
+    );
   }
 
   async getIssue(id: string): Promise<Issue> {
@@ -542,12 +630,19 @@ export class ApiClient {
 
   async listChildIssues(id: string): Promise<{ issues: Issue[] }> {
     const raw = await this.fetch<unknown>(`/api/issues/${id}/children`);
-    return parseWithFallback(raw, ChildIssuesResponseSchema, { issues: [] }, {
-      endpoint: "GET /api/issues/:id/children",
-    });
+    return parseWithFallback(
+      raw,
+      ChildIssuesResponseSchema,
+      { issues: [] },
+      {
+        endpoint: "GET /api/issues/:id/children",
+      },
+    );
   }
 
-  async getChildIssueProgress(): Promise<{ progress: { parent_issue_id: string; total: number; done: number }[] }> {
+  async getChildIssueProgress(): Promise<{
+    progress: { parent_issue_id: string; total: number; done: number }[];
+  }> {
     return this.fetch("/api/issues/child-progress");
   }
 
@@ -555,7 +650,10 @@ export class ApiClient {
     await this.fetch(`/api/issues/${id}`, { method: "DELETE" });
   }
 
-  async batchUpdateIssues(issueIds: string[], updates: UpdateIssueRequest): Promise<{ updated: number }> {
+  async batchUpdateIssues(
+    issueIds: string[],
+    updates: UpdateIssueRequest,
+  ): Promise<{ updated: number }> {
     return this.fetch("/api/issues/batch-update", {
       method: "POST",
       body: JSON.stringify({ issue_ids: issueIds, updates }),
@@ -577,7 +675,13 @@ export class ApiClient {
     });
   }
 
-  async createComment(issueId: string, content: string, type?: string, parentId?: string, attachmentIds?: string[]): Promise<Comment> {
+  async createComment(
+    issueId: string,
+    content: string,
+    type?: string,
+    parentId?: string,
+    attachmentIds?: string[],
+  ): Promise<Comment> {
     return this.fetch(`/api/issues/${issueId}/comments`, {
       method: "POST",
       body: JSON.stringify({
@@ -590,19 +694,26 @@ export class ApiClient {
   }
 
   async listTimeline(issueId: string): Promise<TimelineEntry[]> {
-    const raw = await this.fetch<unknown>(
-      `/api/issues/${issueId}/timeline`,
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/timeline`);
+    return parseWithFallback(
+      raw,
+      TimelineEntriesSchema,
+      EMPTY_TIMELINE_ENTRIES,
+      {
+        endpoint: "GET /api/issues/:id/timeline",
+      },
     );
-    return parseWithFallback(raw, TimelineEntriesSchema, EMPTY_TIMELINE_ENTRIES, {
-      endpoint: "GET /api/issues/:id/timeline",
-    });
   }
 
   async getAssigneeFrequency(): Promise<AssigneeFrequencyEntry[]> {
     return this.fetch("/api/assignee-frequency");
   }
 
-  async updateComment(commentId: string, content: string, attachmentIds?: string[]): Promise<Comment> {
+  async updateComment(
+    commentId: string,
+    content: string,
+    attachmentIds?: string[],
+  ): Promise<Comment> {
     return this.fetch(`/api/comments/${commentId}`, {
       method: "PUT",
       body: JSON.stringify({ content, attachment_ids: attachmentIds }),
@@ -618,7 +729,9 @@ export class ApiClient {
   }
 
   async unresolveComment(commentId: string): Promise<Comment> {
-    return this.fetch(`/api/comments/${commentId}/resolve`, { method: "DELETE" });
+    return this.fetch(`/api/comments/${commentId}/resolve`, {
+      method: "DELETE",
+    });
   }
 
   async addReaction(commentId: string, emoji: string): Promise<Reaction> {
@@ -635,7 +748,10 @@ export class ApiClient {
     });
   }
 
-  async addIssueReaction(issueId: string, emoji: string): Promise<IssueReaction> {
+  async addIssueReaction(
+    issueId: string,
+    emoji: string,
+  ): Promise<IssueReaction> {
     return this.fetch(`/api/issues/${issueId}/reactions`, {
       method: "POST",
       body: JSON.stringify({ emoji }),
@@ -657,7 +773,11 @@ export class ApiClient {
     });
   }
 
-  async subscribeToIssue(issueId: string, userId?: string, userType?: string): Promise<void> {
+  async subscribeToIssue(
+    issueId: string,
+    userId?: string,
+    userType?: string,
+  ): Promise<void> {
     const body: Record<string, string> = {};
     if (userId) body.user_id = userId;
     if (userType) body.user_type = userType;
@@ -667,7 +787,11 @@ export class ApiClient {
     });
   }
 
-  async unsubscribeFromIssue(issueId: string, userId?: string, userType?: string): Promise<void> {
+  async unsubscribeFromIssue(
+    issueId: string,
+    userId?: string,
+    userType?: string,
+  ): Promise<void> {
     const body: Record<string, string> = {};
     if (userId) body.user_id = userId;
     if (userType) body.user_type = userType;
@@ -678,7 +802,10 @@ export class ApiClient {
   }
 
   // Agents
-  async listAgents(params?: { workspace_id?: string; include_archived?: boolean }): Promise<Agent[]> {
+  async listAgents(params?: {
+    workspace_id?: string;
+    include_archived?: boolean;
+  }): Promise<Agent[]> {
     const search = new URLSearchParams();
     if (params?.workspace_id) search.set("workspace_id", params.workspace_id);
     if (params?.include_archived) search.set("include_archived", "true");
@@ -764,7 +891,10 @@ export class ApiClient {
     return this.fetch(`/api/agents/${id}/cancel-tasks`, { method: "POST" });
   }
 
-  async listRuntimes(params?: { workspace_id?: string; owner?: "me" }): Promise<AgentRuntime[]> {
+  async listRuntimes(params?: {
+    workspace_id?: string;
+    owner?: "me";
+  }): Promise<AgentRuntime[]> {
     const search = new URLSearchParams();
     if (params?.workspace_id) search.set("workspace_id", params.workspace_id);
     if (params?.owner) search.set("owner", params.owner);
@@ -776,7 +906,8 @@ export class ApiClient {
   ): Promise<CloudRuntimeNode[]> {
     const search = new URLSearchParams();
     if (params?.limit !== undefined) search.set("limit", String(params.limit));
-    if (params?.offset !== undefined) search.set("offset", String(params.offset));
+    if (params?.offset !== undefined)
+      search.set("offset", String(params.offset));
     const query = search.toString();
     const raw = await this.fetch<unknown>(
       `/api/cloud-runtime/nodes${query ? `?${query}` : ""}`,
@@ -797,7 +928,7 @@ export class ApiClient {
       body: JSON.stringify(data),
       extraHeaders: { "Content-Type": "application/json" },
     });
-    const raw = await res.json() as unknown;
+    const raw = (await res.json()) as unknown;
     return parseWithFallback(
       raw,
       CloudRuntimeNodeSchema,
@@ -908,14 +1039,18 @@ export class ApiClient {
   // as the per-runtime endpoints above).
   // ---------------------------------------------------------------------------
 
-  async getDashboardUsageDaily(
-    params: { days?: number; project_id?: string | null; tz?: string },
-  ): Promise<DashboardUsageDaily[]> {
+  async getDashboardUsageDaily(params: {
+    days?: number;
+    project_id?: string | null;
+    tz?: string;
+  }): Promise<DashboardUsageDaily[]> {
     const search = new URLSearchParams();
     if (params.days) search.set("days", String(params.days));
     if (params.project_id) search.set("project_id", params.project_id);
     if (params.tz) search.set("tz", params.tz);
-    const raw = await this.fetch<unknown>(`/api/dashboard/usage/daily?${search}`);
+    const raw = await this.fetch<unknown>(
+      `/api/dashboard/usage/daily?${search}`,
+    );
     return parseWithFallback<DashboardUsageDaily[]>(
       raw,
       DashboardUsageDailyListSchema,
@@ -924,14 +1059,18 @@ export class ApiClient {
     );
   }
 
-  async getDashboardUsageByAgent(
-    params: { days?: number; project_id?: string | null; tz?: string },
-  ): Promise<DashboardUsageByAgent[]> {
+  async getDashboardUsageByAgent(params: {
+    days?: number;
+    project_id?: string | null;
+    tz?: string;
+  }): Promise<DashboardUsageByAgent[]> {
     const search = new URLSearchParams();
     if (params.days) search.set("days", String(params.days));
     if (params.project_id) search.set("project_id", params.project_id);
     if (params.tz) search.set("tz", params.tz);
-    const raw = await this.fetch<unknown>(`/api/dashboard/usage/by-agent?${search}`);
+    const raw = await this.fetch<unknown>(
+      `/api/dashboard/usage/by-agent?${search}`,
+    );
     return parseWithFallback<DashboardUsageByAgent[]>(
       raw,
       DashboardUsageByAgentListSchema,
@@ -940,16 +1079,20 @@ export class ApiClient {
     );
   }
 
-  async getDashboardAgentRunTime(
-    params: { days?: number; project_id?: string | null; tz?: string },
-  ): Promise<DashboardAgentRunTime[]> {
+  async getDashboardAgentRunTime(params: {
+    days?: number;
+    project_id?: string | null;
+    tz?: string;
+  }): Promise<DashboardAgentRunTime[]> {
     const search = new URLSearchParams();
     if (params.days) search.set("days", String(params.days));
     if (params.project_id) search.set("project_id", params.project_id);
     // `tz` aligns the "last N days" cutoff with the viewer's calendar,
     // matching the per-agent token card.
     if (params.tz) search.set("tz", params.tz);
-    const raw = await this.fetch<unknown>(`/api/dashboard/agent-runtime?${search}`);
+    const raw = await this.fetch<unknown>(
+      `/api/dashboard/agent-runtime?${search}`,
+    );
     return parseWithFallback<DashboardAgentRunTime[]>(
       raw,
       DashboardAgentRunTimeListSchema,
@@ -958,16 +1101,20 @@ export class ApiClient {
     );
   }
 
-  async getDashboardRunTimeDaily(
-    params: { days?: number; project_id?: string | null; tz?: string },
-  ): Promise<DashboardRunTimeDaily[]> {
+  async getDashboardRunTimeDaily(params: {
+    days?: number;
+    project_id?: string | null;
+    tz?: string;
+  }): Promise<DashboardRunTimeDaily[]> {
     const search = new URLSearchParams();
     if (params.days) search.set("days", String(params.days));
     if (params.project_id) search.set("project_id", params.project_id);
     // `tz` cuts the day buckets in the viewer's calendar so Time / Tasks
     // align with the Cost / Tokens charts.
     if (params.tz) search.set("tz", params.tz);
-    const raw = await this.fetch<unknown>(`/api/dashboard/runtime/daily?${search}`);
+    const raw = await this.fetch<unknown>(
+      `/api/dashboard/runtime/daily?${search}`,
+    );
     return parseWithFallback<DashboardRunTimeDaily[]>(
       raw,
       DashboardRunTimeDailyListSchema,
@@ -993,7 +1140,9 @@ export class ApiClient {
     return this.fetch(`/api/runtimes/${runtimeId}/update/${updateId}`);
   }
 
-  async initiateListModels(runtimeId: string): Promise<RuntimeModelListRequest> {
+  async initiateListModels(
+    runtimeId: string,
+  ): Promise<RuntimeModelListRequest> {
     return this.fetch(`/api/runtimes/${runtimeId}/models`, { method: "POST" });
   }
 
@@ -1033,7 +1182,9 @@ export class ApiClient {
     runtimeId: string,
     requestId: string,
   ): Promise<RuntimeLocalSkillImportRequest> {
-    return this.fetch(`/api/runtimes/${runtimeId}/local-skills/import/${requestId}`);
+    return this.fetch(
+      `/api/runtimes/${runtimeId}/local-skills/import/${requestId}`,
+    );
   }
 
   async listAgentTasks(agentId: string): Promise<AgentTask[]> {
@@ -1062,7 +1213,9 @@ export class ApiClient {
     return this.fetch(`/api/agent-run-counts`);
   }
 
-  async getActiveTasksForIssue(issueId: string): Promise<{ tasks: AgentTask[] }> {
+  async getActiveTasksForIssue(
+    issueId: string,
+  ): Promise<{ tasks: AgentTask[] }> {
     return this.fetch(`/api/issues/${issueId}/active-task`);
   }
 
@@ -1129,7 +1282,9 @@ export class ApiClient {
     return this.fetch("/api/notification-preferences");
   }
 
-  async updateNotificationPreferences(preferences: NotificationPreferences): Promise<NotificationPreferenceResponse> {
+  async updateNotificationPreferences(
+    preferences: NotificationPreferences,
+  ): Promise<NotificationPreferenceResponse> {
     return this.fetch("/api/notification-preferences", {
       method: "PUT",
       body: JSON.stringify({ preferences }),
@@ -1157,14 +1312,29 @@ export class ApiClient {
     return this.fetch(`/api/workspaces/${id}`);
   }
 
-  async createWorkspace(data: { name: string; slug: string; description?: string; context?: string }): Promise<Workspace> {
+  async createWorkspace(data: {
+    name: string;
+    slug: string;
+    description?: string;
+    context?: string;
+  }): Promise<Workspace> {
     return this.fetch("/api/workspaces", {
       method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async updateWorkspace(id: string, data: { name?: string; description?: string; context?: string; settings?: Record<string, unknown>; repos?: WorkspaceRepo[]; issue_prefix?: string }): Promise<Workspace> {
+  async updateWorkspace(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      context?: string;
+      settings?: Record<string, unknown>;
+      repos?: WorkspaceRepo[];
+      issue_prefix?: string;
+    },
+  ): Promise<Workspace> {
     return this.fetch(`/api/workspaces/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -1176,14 +1346,21 @@ export class ApiClient {
     return this.fetch(`/api/workspaces/${workspaceId}/members`);
   }
 
-  async createMember(workspaceId: string, data: CreateMemberRequest): Promise<Invitation> {
+  async createMember(
+    workspaceId: string,
+    data: CreateMemberRequest,
+  ): Promise<Invitation> {
     return this.fetch(`/api/workspaces/${workspaceId}/members`, {
       method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async updateMember(workspaceId: string, memberId: string, data: UpdateMemberRequest): Promise<MemberWithUser> {
+  async updateMember(
+    workspaceId: string,
+    memberId: string,
+    data: UpdateMemberRequest,
+  ): Promise<MemberWithUser> {
     return this.fetch(`/api/workspaces/${workspaceId}/members/${memberId}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -1207,10 +1384,16 @@ export class ApiClient {
     return this.fetch(`/api/workspaces/${workspaceId}/invitations`);
   }
 
-  async revokeInvitation(workspaceId: string, invitationId: string): Promise<void> {
-    await this.fetch(`/api/workspaces/${workspaceId}/invitations/${invitationId}`, {
-      method: "DELETE",
-    });
+  async revokeInvitation(
+    workspaceId: string,
+    invitationId: string,
+  ): Promise<void> {
+    await this.fetch(
+      `/api/workspaces/${workspaceId}/invitations/${invitationId}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
   async listMyInvitations(): Promise<Invitation[]> {
@@ -1277,7 +1460,10 @@ export class ApiClient {
     return this.fetch(`/api/agents/${agentId}/skills`);
   }
 
-  async setAgentSkills(agentId: string, data: SetAgentSkillsRequest): Promise<void> {
+  async setAgentSkills(
+    agentId: string,
+    data: SetAgentSkillsRequest,
+  ): Promise<void> {
     await this.fetch(`/api/agents/${agentId}/skills`, {
       method: "PUT",
       body: JSON.stringify(data),
@@ -1289,7 +1475,9 @@ export class ApiClient {
     return this.fetch("/api/tokens");
   }
 
-  async createPersonalAccessToken(data: CreatePersonalAccessTokenRequest): Promise<CreatePersonalAccessTokenResponse> {
+  async createPersonalAccessToken(
+    data: CreatePersonalAccessTokenRequest,
+  ): Promise<CreatePersonalAccessTokenResponse> {
     return this.fetch("/api/tokens", {
       method: "POST",
       body: JSON.stringify(data),
@@ -1309,7 +1497,8 @@ export class ApiClient {
     formData.append("file", file);
     if (opts?.issueId) formData.append("issue_id", opts.issueId);
     if (opts?.commentId) formData.append("comment_id", opts.commentId);
-    if (opts?.chatSessionId) formData.append("chat_session_id", opts.chatSessionId);
+    if (opts?.chatSessionId)
+      formData.append("chat_session_id", opts.chatSessionId);
 
     const rid = createRequestId();
     const start = Date.now();
@@ -1324,12 +1513,22 @@ export class ApiClient {
 
     if (!res.ok) {
       if (res.status === 401) this.handleUnauthorized();
-      const message = await this.parseErrorMessage(res, `Upload failed: ${res.status}`);
-      this.logger.error(`← ${res.status} /api/upload-file`, { rid, duration: `${Date.now() - start}ms`, error: message });
+      const message = await this.parseErrorMessage(
+        res,
+        `Upload failed: ${res.status}`,
+      );
+      this.logger.error(`← ${res.status} /api/upload-file`, {
+        rid,
+        duration: `${Date.now() - start}ms`,
+        error: message,
+      });
       throw new Error(message);
     }
 
-    this.logger.info(`← ${res.status} /api/upload-file`, { rid, duration: `${Date.now() - start}ms` });
+    this.logger.info(`← ${res.status} /api/upload-file`, {
+      rid,
+      duration: `${Date.now() - start}ms`,
+    });
     const raw = (await res.json()) as unknown;
     return parseWithFallback(raw, AttachmentResponseSchema, EMPTY_ATTACHMENT, {
       endpoint: "POST /api/upload-file",
@@ -1346,7 +1545,10 @@ export class ApiClient {
     return this.fetch(`/api/chat/sessions/${id}`);
   }
 
-  async createChatSession(data: { agent_id: string; title?: string }): Promise<ChatSession> {
+  async createChatSession(data: {
+    agent_id: string;
+    title?: string;
+  }): Promise<ChatSession> {
     return this.fetch("/api/chat/sessions", {
       method: "POST",
       body: JSON.stringify(data),
@@ -1357,7 +1559,10 @@ export class ApiClient {
     await this.fetch(`/api/chat/sessions/${id}`, { method: "DELETE" });
   }
 
-  async updateChatSession(id: string, data: { title: string }): Promise<ChatSession> {
+  async updateChatSession(
+    id: string,
+    data: { title: string },
+  ): Promise<ChatSession> {
     return this.fetch(`/api/chat/sessions/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -1392,7 +1597,9 @@ export class ApiClient {
   }
 
   async markChatSessionRead(sessionId: string): Promise<void> {
-    await this.fetch(`/api/chat/sessions/${sessionId}/read`, { method: "POST" });
+    await this.fetch(`/api/chat/sessions/${sessionId}/read`, {
+      method: "POST",
+    });
   }
 
   async cancelTaskById(taskId: string): Promise<void> {
@@ -1451,7 +1658,9 @@ export class ApiClient {
   }
 
   // Projects
-  async listProjects(params?: { status?: string }): Promise<ListProjectsResponse> {
+  async listProjects(params?: {
+    status?: string;
+  }): Promise<ListProjectsResponse> {
     const search = new URLSearchParams();
     if (params?.status) search.set("status", params.status);
     return this.fetch(`/api/projects?${search}`);
@@ -1468,7 +1677,10 @@ export class ApiClient {
     });
   }
 
-  async updateProject(id: string, data: UpdateProjectRequest): Promise<Project> {
+  async updateProject(
+    id: string,
+    data: UpdateProjectRequest,
+  ): Promise<Project> {
     return this.fetch(`/api/projects/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
@@ -1536,14 +1748,20 @@ export class ApiClient {
     return this.fetch(`/api/issues/${issueId}/labels`);
   }
 
-  async attachLabel(issueId: string, labelId: string): Promise<IssueLabelsResponse> {
+  async attachLabel(
+    issueId: string,
+    labelId: string,
+  ): Promise<IssueLabelsResponse> {
     return this.fetch(`/api/issues/${issueId}/labels`, {
       method: "POST",
       body: JSON.stringify({ label_id: labelId }),
     });
   }
 
-  async detachLabel(issueId: string, labelId: string): Promise<IssueLabelsResponse> {
+  async detachLabel(
+    issueId: string,
+    labelId: string,
+  ): Promise<IssueLabelsResponse> {
     return this.fetch(`/api/issues/${issueId}/labels/${labelId}`, {
       method: "DELETE",
     });
@@ -1581,12 +1799,32 @@ export class ApiClient {
     return this.fetch(`/api/squads/${id}`);
   }
 
-  async createSquad(data: { name: string; description?: string; leader_id: string; avatar_url?: string }): Promise<Squad> {
-    return this.fetch("/api/squads", { method: "POST", body: JSON.stringify(data) });
+  async createSquad(data: {
+    name: string;
+    description?: string;
+    leader_id: string;
+    avatar_url?: string;
+  }): Promise<Squad> {
+    return this.fetch("/api/squads", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
-  async updateSquad(id: string, data: { name?: string; description?: string; instructions?: string; leader_id?: string; avatar_url?: string }): Promise<Squad> {
-    return this.fetch(`/api/squads/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  async updateSquad(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      instructions?: string;
+      leader_id?: string;
+      avatar_url?: string;
+    },
+  ): Promise<Squad> {
+    return this.fetch(`/api/squads/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
   }
 
   async deleteSquad(id: string): Promise<void> {
@@ -1597,31 +1835,60 @@ export class ApiClient {
     return this.fetch(`/api/squads/${squadId}/members`);
   }
 
-  async addSquadMember(squadId: string, data: { member_type: string; member_id: string; role?: string }): Promise<SquadMember> {
-    return this.fetch(`/api/squads/${squadId}/members`, { method: "POST", body: JSON.stringify(data) });
+  async addSquadMember(
+    squadId: string,
+    data: { member_type: string; member_id: string; role?: string },
+  ): Promise<SquadMember> {
+    return this.fetch(`/api/squads/${squadId}/members`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
-  async removeSquadMember(squadId: string, data: { member_type: string; member_id: string }): Promise<void> {
-    await this.fetch(`/api/squads/${squadId}/members`, { method: "DELETE", body: JSON.stringify(data) });
+  async removeSquadMember(
+    squadId: string,
+    data: { member_type: string; member_id: string },
+  ): Promise<void> {
+    await this.fetch(`/api/squads/${squadId}/members`, {
+      method: "DELETE",
+      body: JSON.stringify(data),
+    });
   }
 
-  async updateSquadMemberRole(squadId: string, data: { member_type: string; member_id: string; role: string }): Promise<SquadMember> {
-    return this.fetch(`/api/squads/${squadId}/members/role`, { method: "PATCH", body: JSON.stringify(data) });
+  async updateSquadMemberRole(
+    squadId: string,
+    data: { member_type: string; member_id: string; role: string },
+  ): Promise<SquadMember> {
+    return this.fetch(`/api/squads/${squadId}/members/role`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
   }
 
   // Per-squad members status snapshot: one row per member with derived
   // working/idle/offline/unstable plus the issues each agent is currently
   // running. Parsed with a lenient schema so a new server-side status
   // value or extra field can't white-screen the Squad page (#2143).
-  async getSquadMemberStatus(squadId: string): Promise<SquadMemberStatusListResponse> {
-    const raw = await this.fetch<unknown>(`/api/squads/${squadId}/members/status`);
-    return parseWithFallback(raw, SquadMemberStatusListResponseSchema, EMPTY_SQUAD_MEMBER_STATUS_LIST, {
-      endpoint: "GET /api/squads/:id/members/status",
-    }) as SquadMemberStatusListResponse;
+  async getSquadMemberStatus(
+    squadId: string,
+  ): Promise<SquadMemberStatusListResponse> {
+    const raw = await this.fetch<unknown>(
+      `/api/squads/${squadId}/members/status`,
+    );
+    return parseWithFallback(
+      raw,
+      SquadMemberStatusListResponseSchema,
+      EMPTY_SQUAD_MEMBER_STATUS_LIST,
+      {
+        endpoint: "GET /api/squads/:id/members/status",
+      },
+    ) as SquadMemberStatusListResponse;
   }
 
   // Autopilots
-  async listAutopilots(params?: { status?: string }): Promise<ListAutopilotsResponse> {
+  async listAutopilots(params?: {
+    status?: string;
+  }): Promise<ListAutopilotsResponse> {
     const search = new URLSearchParams();
     if (params?.status) search.set("status", params.status);
     return this.fetch(`/api/autopilots?${search}`);
@@ -1638,7 +1905,10 @@ export class ApiClient {
     });
   }
 
-  async updateAutopilot(id: string, data: UpdateAutopilotRequest): Promise<Autopilot> {
+  async updateAutopilot(
+    id: string,
+    data: UpdateAutopilotRequest,
+  ): Promise<Autopilot> {
     return this.fetch(`/api/autopilots/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -1653,7 +1923,10 @@ export class ApiClient {
     return this.fetch(`/api/autopilots/${id}/trigger`, { method: "POST" });
   }
 
-  async listAutopilotRuns(id: string, params?: { limit?: number; offset?: number }): Promise<ListAutopilotRunsResponse> {
+  async listAutopilotRuns(
+    id: string,
+    params?: { limit?: number; offset?: number },
+  ): Promise<ListAutopilotRunsResponse> {
     const search = new URLSearchParams();
     if (params?.limit) search.set("limit", params.limit.toString());
     if (params?.offset) search.set("offset", params.offset.toString());
@@ -1663,26 +1936,41 @@ export class ApiClient {
   // Returns a single run including its full trigger_payload. List responses
   // omit trigger_payload to keep them small (a webhook envelope can be
   // up to 256 KiB × limit rows), so the detail view fetches via this route.
-  async getAutopilotRun(autopilotId: string, runId: string): Promise<AutopilotRun> {
+  async getAutopilotRun(
+    autopilotId: string,
+    runId: string,
+  ): Promise<AutopilotRun> {
     return this.fetch(`/api/autopilots/${autopilotId}/runs/${runId}`);
   }
 
-  async createAutopilotTrigger(autopilotId: string, data: CreateAutopilotTriggerRequest): Promise<AutopilotTrigger> {
+  async createAutopilotTrigger(
+    autopilotId: string,
+    data: CreateAutopilotTriggerRequest,
+  ): Promise<AutopilotTrigger> {
     return this.fetch(`/api/autopilots/${autopilotId}/triggers`, {
       method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async updateAutopilotTrigger(autopilotId: string, triggerId: string, data: UpdateAutopilotTriggerRequest): Promise<AutopilotTrigger> {
+  async updateAutopilotTrigger(
+    autopilotId: string,
+    triggerId: string,
+    data: UpdateAutopilotTriggerRequest,
+  ): Promise<AutopilotTrigger> {
     return this.fetch(`/api/autopilots/${autopilotId}/triggers/${triggerId}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     });
   }
 
-  async deleteAutopilotTrigger(autopilotId: string, triggerId: string): Promise<void> {
-    await this.fetch(`/api/autopilots/${autopilotId}/triggers/${triggerId}`, { method: "DELETE" });
+  async deleteAutopilotTrigger(
+    autopilotId: string,
+    triggerId: string,
+  ): Promise<void> {
+    await this.fetch(`/api/autopilots/${autopilotId}/triggers/${triggerId}`, {
+      method: "DELETE",
+    });
   }
 
   async rotateAutopilotTriggerWebhookToken(
@@ -1754,21 +2042,33 @@ export class ApiClient {
   }
 
   // GitHub integration
-  async getGitHubConnectURL(workspaceId: string): Promise<GitHubConnectResponse> {
+  async getGitHubConnectURL(
+    workspaceId: string,
+  ): Promise<GitHubConnectResponse> {
     return this.fetch(`/api/workspaces/${workspaceId}/github/connect`);
   }
 
-  async listGitHubInstallations(workspaceId: string): Promise<ListGitHubInstallationsResponse> {
+  async listGitHubInstallations(
+    workspaceId: string,
+  ): Promise<ListGitHubInstallationsResponse> {
     return this.fetch(`/api/workspaces/${workspaceId}/github/installations`);
   }
 
-  async deleteGitHubInstallation(workspaceId: string, installationId: string): Promise<void> {
-    await this.fetch(`/api/workspaces/${workspaceId}/github/installations/${installationId}`, {
-      method: "DELETE",
-    });
+  async deleteGitHubInstallation(
+    workspaceId: string,
+    installationId: string,
+  ): Promise<void> {
+    await this.fetch(
+      `/api/workspaces/${workspaceId}/github/installations/${installationId}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
-  async listIssuePullRequests(issueId: string): Promise<{ pull_requests: GitHubPullRequest[] }> {
+  async listIssuePullRequests(
+    issueId: string,
+  ): Promise<{ pull_requests: GitHubPullRequest[] }> {
     return this.fetch(`/api/issues/${issueId}/pull-requests`);
   }
 }

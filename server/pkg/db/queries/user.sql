@@ -38,6 +38,13 @@ UPDATE "user" SET
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateUserPasswordHash :one
+UPDATE "user" SET
+    password_hash = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: MarkUserOnboarded :one
 UPDATE "user" SET
     onboarded_at = COALESCE(onboarded_at, now()),

@@ -23,6 +23,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/logger"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // SignupError represents signup restriction errors
@@ -49,11 +50,11 @@ var supportedLanguages = map[string]struct{}{
 }
 
 type UserResponse struct {
-	ID                      string          `json:"id"`
-	Name                    string          `json:"name"`
-	Email                   string          `json:"email"`
-	AvatarURL               *string         `json:"avatar_url"`
-	Language                *string         `json:"language"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Email     string  `json:"email"`
+	AvatarURL *string `json:"avatar_url"`
+	Language  *string `json:"language"`
 	// Pinned IANA tz; nil = no preference (use browser-detected tz).
 	Timezone                *string         `json:"timezone"`
 	OnboardedAt             *string         `json:"onboarded_at"`
@@ -108,6 +109,20 @@ type VerifyCodeRequest struct {
 	Code  string `json:"code"`
 }
 
+type PasswordLoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type UpdatePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+const minPasswordLength = 8
+const maxPasswordBytes = 72
+const dummyPasswordHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+
 func generateCode() (string, error) {
 	var buf [4]byte
 	if _, err := rand.Read(buf[:]); err != nil {
@@ -144,6 +159,32 @@ func isSixDigitCode(code string) bool {
 		}
 	}
 	return true
+}
+
+func validatePassword(password string) error {
+	trimmed := strings.TrimSpace(password)
+	if trimmed == "" {
+		return errors.New("password is required")
+	}
+	if utf8.RuneCountInString(password) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
+	}
+	if len([]byte(password)) > maxPasswordBytes {
+		return fmt.Errorf("password must be at most %d bytes", maxPasswordBytes)
+	}
+	return nil
+}
+
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+func verifyPassword(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 func (h *Handler) issueJWT(user db.User) (string, error) {
@@ -411,6 +452,57 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("user logged in", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
+	writeJSON(w, http.StatusOK, LoginResponse{
+		Token: tokenString,
+		User:  userToResponse(user),
+	})
+}
+
+func (h *Handler) PasswordLogin(w http.ResponseWriter, r *http.Request) {
+	var req PasswordLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	password := req.Password
+	if email == "" || password == "" {
+		writeError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+
+	user, err := h.Queries.GetUserByEmail(r.Context(), email)
+	if err != nil && !isNotFound(err) {
+		writeError(w, http.StatusInternalServerError, "failed to lookup user")
+		return
+	}
+	hashToCheck := dummyPasswordHash
+	if err == nil && user.PasswordHash.Valid {
+		hashToCheck = user.PasswordHash.String
+	}
+	if !verifyPassword(hashToCheck, password) || err != nil || !user.PasswordHash.Valid {
+		writeError(w, http.StatusUnauthorized, "invalid email or password")
+		return
+	}
+
+	tokenString, err := h.issueJWT(user)
+	if err != nil {
+		slog.Warn("password login failed", append(logger.RequestAttrs(r), "error", err, "email", email)...)
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	if err := auth.SetAuthCookies(w, tokenString); err != nil {
+		slog.Warn("failed to set auth cookies", "error", err)
+	}
+	if h.CFSigner != nil {
+		for _, cookie := range h.CFSigner.SignedCookies(time.Now().Add(auth.AuthTokenTTL())) {
+			http.SetCookie(w, cookie)
+		}
+	}
+
+	slog.Info("user logged in via password", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
 	writeJSON(w, http.StatusOK, LoginResponse{
 		Token: tokenString,
 		User:  userToResponse(user),
@@ -716,4 +808,54 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, userToResponse(updatedUser))
+}
+
+func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req UpdatePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := validatePassword(req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	currentUser, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	if currentUser.PasswordHash.Valid {
+		if req.CurrentPassword == "" {
+			writeError(w, http.StatusBadRequest, "current_password is required")
+			return
+		}
+		if !verifyPassword(currentUser.PasswordHash.String, req.CurrentPassword) {
+			writeError(w, http.StatusBadRequest, "current password is incorrect")
+			return
+		}
+	}
+
+	hash, err := hashPassword(req.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		return
+	}
+
+	if _, err := h.Queries.UpdateUserPasswordHash(r.Context(), db.UpdateUserPasswordHashParams{
+		ID:           currentUser.ID,
+		PasswordHash: pgtype.Text{String: hash, Valid: true},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update password")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "password updated"})
 }

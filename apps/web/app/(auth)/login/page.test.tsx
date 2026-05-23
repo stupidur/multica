@@ -24,18 +24,21 @@ function createWrapper() {
 const {
   mockSendCode,
   mockVerifyCode,
+  mockPasswordLogin,
   mockIssueCliToken,
   searchParamsState,
   authStateRef,
 } = vi.hoisted(() => ({
   mockSendCode: vi.fn(),
   mockVerifyCode: vi.fn(),
+  mockPasswordLogin: vi.fn(),
   mockIssueCliToken: vi.fn(),
   searchParamsState: { params: new URLSearchParams() },
   authStateRef: {
     state: {
       sendCode: vi.fn(),
       verifyCode: vi.fn(),
+      loginWithPassword: vi.fn(),
       user: null as null | { id: string; email: string },
       isLoading: false,
     },
@@ -60,6 +63,7 @@ vi.mock("@multica/core/auth", async () => {
     );
   authStateRef.state.sendCode = mockSendCode;
   authStateRef.state.verifyCode = mockVerifyCode;
+  authStateRef.state.loginWithPassword = mockPasswordLogin;
   const useAuthStore = Object.assign(
     (selector: (s: typeof authStateRef.state) => unknown) =>
       selector(authStateRef.state),
@@ -98,17 +102,38 @@ describe("LoginPage", () => {
     render(<LoginPage />, { wrapper: createWrapper() });
 
     expect(screen.getByText("Sign in to Multica")).toBeInTheDocument();
-    expect(screen.getByText("Enter your email to get a login code")).toBeInTheDocument();
+    expect(
+      screen.getByText("Sign in with your password or request a login code by email"),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Continue" })
+      screen.getByRole("button", { name: "Sign in" })
     ).toBeInTheDocument();
+  });
+
+  it("calls password login with email and password on submit", async () => {
+    mockPasswordLogin.mockResolvedValueOnce({
+      id: "u1",
+      email: "test@multica.ai",
+      name: "test",
+    });
+    const user = userEvent.setup();
+    render(<LoginPage />, { wrapper: createWrapper() });
+
+    await user.type(screen.getByLabelText("Email"), "test@multica.ai");
+    await user.type(screen.getByPlaceholderText("Enter your password"), "secret123");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(mockPasswordLogin).toHaveBeenCalledWith("test@multica.ai", "secret123");
+    });
   });
 
   it("does not call sendCode when email is empty", async () => {
     const user = userEvent.setup();
     render(<LoginPage />, { wrapper: createWrapper() });
 
+    await user.click(screen.getByRole("tab", { name: "Code" }));
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(mockSendCode).not.toHaveBeenCalled();
   });
@@ -118,6 +143,7 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     render(<LoginPage />, { wrapper: createWrapper() });
 
+    await user.click(screen.getByRole("tab", { name: "Code" }));
     await user.type(screen.getByLabelText("Email"), "test@multica.ai");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
@@ -131,6 +157,7 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     render(<LoginPage />, { wrapper: createWrapper() });
 
+    await user.click(screen.getByRole("tab", { name: "Code" }));
     await user.type(screen.getByLabelText("Email"), "test@multica.ai");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
@@ -144,6 +171,7 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     render(<LoginPage />, { wrapper: createWrapper() });
 
+    await user.click(screen.getByRole("tab", { name: "Code" }));
     await user.type(screen.getByLabelText("Email"), "test@multica.ai");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
@@ -157,6 +185,7 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     render(<LoginPage />, { wrapper: createWrapper() });
 
+    await user.click(screen.getByRole("tab", { name: "Code" }));
     await user.type(screen.getByLabelText("Email"), "test@multica.ai");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 

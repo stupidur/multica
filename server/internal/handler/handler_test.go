@@ -2400,6 +2400,174 @@ func TestVerifyCodeNewUserHasNoWorkspace(t *testing.T) {
 	}
 }
 
+func TestPasswordLogin(t *testing.T) {
+	const email = "password-login-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	user, _, err := testHandler.findOrCreateUser(ctx, email)
+	if err != nil {
+		t.Fatalf("findOrCreateUser: %v", err)
+	}
+	hash, err := hashPassword("secret123")
+	if err != nil {
+		t.Fatalf("hashPassword: %v", err)
+	}
+	if _, err := testHandler.Queries.UpdateUserPasswordHash(ctx, db.UpdateUserPasswordHashParams{
+		ID:           user.ID,
+		PasswordHash: pgtype.Text{String: hash, Valid: true},
+	}); err != nil {
+		t.Fatalf("UpdateUserPasswordHash: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "password": "secret123"})
+	req := httptest.NewRequest("POST", "/auth/password-login", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.PasswordLogin(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PasswordLogin: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp LoginResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Token == "" {
+		t.Fatal("PasswordLogin: expected non-empty token")
+	}
+	if resp.User.Email != email {
+		t.Fatalf("PasswordLogin: expected email %q, got %q", email, resp.User.Email)
+	}
+}
+
+func TestPasswordLoginRejectsWrongPassword(t *testing.T) {
+	const email = "password-login-wrong@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	user, _, err := testHandler.findOrCreateUser(ctx, email)
+	if err != nil {
+		t.Fatalf("findOrCreateUser: %v", err)
+	}
+	hash, err := hashPassword("secret123")
+	if err != nil {
+		t.Fatalf("hashPassword: %v", err)
+	}
+	if _, err := testHandler.Queries.UpdateUserPasswordHash(ctx, db.UpdateUserPasswordHashParams{
+		ID:           user.ID,
+		PasswordHash: pgtype.Text{String: hash, Valid: true},
+	}); err != nil {
+		t.Fatalf("UpdateUserPasswordHash: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "password": "wrongpass"})
+	req := httptest.NewRequest("POST", "/auth/password-login", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.PasswordLogin(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("PasswordLogin wrong password: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPasswordLoginRejectsUserWithoutPassword(t *testing.T) {
+	const email = "password-login-nohash@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	if _, _, err := testHandler.findOrCreateUser(ctx, email); err != nil {
+		t.Fatalf("findOrCreateUser: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "password": "secret123"})
+	req := httptest.NewRequest("POST", "/auth/password-login", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.PasswordLogin(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("PasswordLogin no password hash: expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdatePasswordFirstSet(t *testing.T) {
+	const email = "password-first-set@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	user, _, err := testHandler.findOrCreateUser(ctx, email)
+	if err != nil {
+		t.Fatalf("findOrCreateUser: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"new_password": "secret123"})
+	req := httptest.NewRequest("PATCH", "/api/me/password", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", uuidToString(user.ID))
+	testHandler.UpdatePassword(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdatePassword first set: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updated, err := testHandler.Queries.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	if !updated.PasswordHash.Valid || !verifyPassword(updated.PasswordHash.String, "secret123") {
+		t.Fatal("UpdatePassword first set: password hash not persisted")
+	}
+}
+
+func TestUpdatePasswordRequiresCorrectCurrentPassword(t *testing.T) {
+	const email = "password-change-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	user, _, err := testHandler.findOrCreateUser(ctx, email)
+	if err != nil {
+		t.Fatalf("findOrCreateUser: %v", err)
+	}
+	hash, err := hashPassword("secret123")
+	if err != nil {
+		t.Fatalf("hashPassword: %v", err)
+	}
+	if _, err := testHandler.Queries.UpdateUserPasswordHash(ctx, db.UpdateUserPasswordHashParams{
+		ID:           user.ID,
+		PasswordHash: pgtype.Text{String: hash, Valid: true},
+	}); err != nil {
+		t.Fatalf("UpdateUserPasswordHash: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"current_password": "wrongpass", "new_password": "newsecret123"})
+	req := httptest.NewRequest("PATCH", "/api/me/password", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", uuidToString(user.ID))
+	testHandler.UpdatePassword(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdatePassword wrong current password: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestResolveActor(t *testing.T) {
 	ctx := context.Background()
 

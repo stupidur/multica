@@ -25,6 +25,7 @@
     "workspace_fallback": "Workspace",
     "tabs": {
       "profile": "Profile",
+      "password": "Password",
       "preferences": "Preferences",
       "notifications": "Notifications",
       "tokens": "API Tokens",
@@ -50,6 +51,22 @@
     "toast_avatar_failed": "Failed to upload avatar",
     "toast_profile_updated": "Profile updated",
     "toast_profile_failed": "Failed to update profile"
+  },
+  "password": {
+    "section_title": "Password",
+    "description": "Set a password so you can sign in with email and password next time. If you already have one, enter your current password to change it.",
+    "current_label": "Current password",
+    "current_placeholder": "Enter current password",
+    "current_hint": "Leave empty only when setting a password for the first time after signing in with a code.",
+    "new_label": "New password",
+    "new_placeholder": "At least 8 characters",
+    "confirm_label": "Confirm new password",
+    "confirm_placeholder": "Re-enter the new password",
+    "confirm_mismatch": "Passwords do not match.",
+    "save": "Update password",
+    "saving": "Updating...",
+    "toast_updated": "Password updated",
+    "toast_failed": "Failed to update password"
   },
   "notifications": {
     "title": "Inbox Notifications",

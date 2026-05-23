@@ -25,6 +25,7 @@
     "workspace_fallback": "工作区",
     "tabs": {
       "profile": "个人资料",
+      "password": "修改密码",
       "preferences": "偏好设置",
       "notifications": "通知",
       "tokens": "API Token",
@@ -50,6 +51,22 @@
     "toast_avatar_failed": "上传头像失败",
     "toast_profile_updated": "资料已更新",
     "toast_profile_failed": "更新资料失败"
+  },
+  "password": {
+    "section_title": "修改密码",
+    "description": "设置密码后，下次可以直接使用邮箱和密码登录。如果已经设置过密码，输入当前密码即可修改。",
+    "current_label": "当前密码",
+    "current_placeholder": "输入当前密码",
+    "current_hint": "如果这是你首次在验证码登录后设置密码，这一项可以留空。",
+    "new_label": "新密码",
+    "new_placeholder": "至少 8 个字符",
+    "confirm_label": "确认新密码",
+    "confirm_placeholder": "再次输入新密码",
+    "confirm_mismatch": "两次输入的密码不一致。",
+    "save": "更新密码",
+    "saving": "更新中...",
+    "toast_updated": "密码已更新",
+    "toast_failed": "更新密码失败"
   },
   "notifications": {
     "title": "收件箱通知",

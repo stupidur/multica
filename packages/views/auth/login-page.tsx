@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -13,6 +19,12 @@ import {
 import { Input } from "@multica/ui/components/ui/input";
 import { Button } from "@multica/ui/components/ui/button";
 import { Label } from "@multica/ui/components/ui/label";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@multica/ui/components/ui/tabs";
 import {
   InputOTP,
   InputOTPGroup,
@@ -110,11 +122,13 @@ export function LoginPage({
   const qc = useQueryClient();
   const [step, setStep] = useState<"email" | "code" | "cli_confirm">("email");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [existingUser, setExistingUser] = useState<User | null>(null);
+  const [signinMode, setSigninMode] = useState<"password" | "code">("password");
   // Tracks how the existing session was detected so handleCliAuthorize
   // uses the matching token source (cookie → issueCliToken, localStorage → direct).
   const authSourceRef = useRef<"cookie" | "localStorage">("cookie");
@@ -216,9 +230,7 @@ export function LoginPage({
         onSuccess();
       } catch (err) {
         setError(
-          err instanceof Error
-            ? err.message
-            : t(($) => $.errors.code_invalid),
+          err instanceof Error ? err.message : t(($) => $.errors.code_invalid),
         );
         setCode("");
         setLoading(false);
@@ -239,6 +251,38 @@ export function LoginPage({
       );
     }
   };
+
+  const handlePasswordLogin = useCallback(
+    async (e?: React.FormEvent) => {
+      e?.preventDefault();
+      if (!email) {
+        setError(t(($) => $.common.email_required));
+        return;
+      }
+      if (!password) {
+        setError(t(($) => $.common.password_required));
+        return;
+      }
+      setLoading(true);
+      setError("");
+      try {
+        await useAuthStore.getState().loginWithPassword(email, password);
+        const wsList = await api.listWorkspaces();
+        qc.setQueryData(workspaceKeys.list(), wsList);
+        onTokenObtained?.();
+        onSuccess();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(($) => $.errors.password_login_failed),
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [email, onSuccess, onTokenObtained, password, qc, t],
+  );
 
   const handleCliAuthorize = async () => {
     if (!cliCallback) return;
@@ -296,9 +340,7 @@ export function LoginPage({
         <Card className="w-full max-w-sm">
           <CardHeader className="text-center">
             {logo && <div className="mx-auto mb-4">{logo}</div>}
-            <CardTitle className="text-2xl">
-              {t(($) => $.cli.title)}
-            </CardTitle>
+            <CardTitle className="text-2xl">{t(($) => $.cli.title)}</CardTitle>
             <CardDescription>
               {t(($) => $.cli.description, { email: existingUser.email })}
             </CardDescription>
@@ -366,9 +408,7 @@ export function LoginPage({
                 <InputOTPSlot index={5} />
               </InputOTPGroup>
             </InputOTP>
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <button
                 type="button"
@@ -410,43 +450,108 @@ export function LoginPage({
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           {logo && <div className="mx-auto mb-4">{logo}</div>}
-          <CardTitle className="text-2xl">
-            {t(($) => $.signin.title)}
-          </CardTitle>
-          <CardDescription>
-            {t(($) => $.signin.description)}
-          </CardDescription>
+          <CardTitle className="text-2xl">{t(($) => $.signin.title)}</CardTitle>
+          <CardDescription>{t(($) => $.signin.description)}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form id="login-form" onSubmit={handleSendCode} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="login-email">{t(($) => $.common.email)}</Label>
-              <Input
-                id="login-email"
-                type="email"
-                placeholder={t(($) => $.common.email_placeholder)}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoFocus
-                required
-              />
-            </div>
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
-          </form>
+          <Tabs
+            value={signinMode}
+            onValueChange={(value) => {
+              setSigninMode(value as "password" | "code");
+              setError("");
+            }}
+            className="w-full"
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="password">
+                {t(($) => $.signin.password_tab)}
+              </TabsTrigger>
+              <TabsTrigger value="code">
+                {t(($) => $.signin.code_tab)}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="password" className="pt-4">
+              <form
+                id="password-login-form"
+                onSubmit={handlePasswordLogin}
+                className="space-y-4"
+              >
+                <div className="space-y-2">
+                  <Label htmlFor="password-login-email">
+                    {t(($) => $.common.email)}
+                  </Label>
+                  <Input
+                    id="password-login-email"
+                    type="email"
+                    placeholder={t(($) => $.common.email_placeholder)}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoFocus
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password-login-password">
+                    {t(($) => $.common.password)}
+                  </Label>
+                  <Input
+                    id="password-login-password"
+                    type="password"
+                    placeholder={t(($) => $.common.password_placeholder)}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+              </form>
+            </TabsContent>
+            <TabsContent value="code" className="pt-4">
+              <form
+                id="login-form"
+                onSubmit={handleSendCode}
+                className="space-y-4"
+              >
+                <div className="space-y-2">
+                  <Label htmlFor="login-email">
+                    {t(($) => $.common.email)}
+                  </Label>
+                  <Input
+                    id="login-email"
+                    type="email"
+                    placeholder={t(($) => $.common.email_placeholder)}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoFocus={signinMode === "code"}
+                    required
+                  />
+                </div>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+              </form>
+            </TabsContent>
+          </Tabs>
         </CardContent>
         <CardFooter className="flex flex-col gap-3">
           <Button
             type="submit"
-            form="login-form"
+            form={
+              signinMode === "password" ? "password-login-form" : "login-form"
+            }
             className="w-full"
             size="lg"
-            disabled={!email || loading}
+            disabled={
+              loading ||
+              !email ||
+              (signinMode === "password" ? !password : false)
+            }
           >
-            {loading
-              ? t(($) => $.signin.sending)
-              : t(($) => $.signin.continue)}
+            {signinMode === "password"
+              ? loading
+                ? t(($) => $.signin.signing_in)
+                : t(($) => $.signin.password_continue)
+              : loading
+                ? t(($) => $.signin.sending)
+                : t(($) => $.signin.continue)}
           </Button>
           {(google || onGoogleLogin) && (
             <>
