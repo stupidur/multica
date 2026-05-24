@@ -7,6 +7,21 @@ import { useAuthStore } from "@multica/core/auth";
 
 const DEFAULT_TITLE = "Multica — Project Management for Human + Agent Teams";
 const TITLE_UPDATED_EVENT = "multica:tenant-title-updated";
+const TITLE_CACHE_KEY = "multica_tenant_document_title";
+
+function cachedTitle() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TITLE_CACHE_KEY)?.trim() || null;
+}
+
+function persistTitle(title: string | null) {
+  if (typeof window === "undefined") return;
+  if (title) {
+    window.localStorage.setItem(TITLE_CACHE_KEY, title);
+  } else {
+    window.localStorage.removeItem(TITLE_CACHE_KEY);
+  }
+}
 
 export function notifyTenantTitleUpdated(title: string) {
   if (typeof window === "undefined") return;
@@ -18,7 +33,7 @@ export function notifyTenantTitleUpdated(title: string) {
 export function TenantDocumentTitle() {
   const user = useAuthStore((s) => s.user);
   const pathname = usePathname();
-  const [title, setTitle] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(() => cachedTitle());
 
   useEffect(() => {
     if (!user) {
@@ -30,10 +45,13 @@ export function TenantDocumentTitle() {
     api
       .getTenantSettings()
       .then((settings) => {
-        if (!cancelled) setTitle(settings.title?.trim() || null);
+        if (cancelled) return;
+        const nextTitle = settings.title?.trim() || null;
+        persistTitle(nextTitle);
+        setTitle(nextTitle);
       })
       .catch(() => {
-        if (!cancelled) setTitle(null);
+        if (!cancelled) setTitle(cachedTitle());
       });
 
     return () => {
@@ -46,14 +64,28 @@ export function TenantDocumentTitle() {
 
     const onTitleUpdated = (event: Event) => {
       const nextTitle = (event as CustomEvent<{ title?: string }>).detail?.title;
-      setTitle(nextTitle?.trim() || null);
+      const trimmed = nextTitle?.trim() || null;
+      persistTitle(trimmed);
+      setTitle(trimmed);
     };
     window.addEventListener(TITLE_UPDATED_EVENT, onTitleUpdated);
     return () => window.removeEventListener(TITLE_UPDATED_EVENT, onTitleUpdated);
   }, []);
 
   useEffect(() => {
-    document.title = title || DEFAULT_TITLE;
+    const desiredTitle = title || DEFAULT_TITLE;
+    const applyTitle = () => {
+      if (document.title !== desiredTitle) document.title = desiredTitle;
+    };
+
+    applyTitle();
+
+    const observer = new MutationObserver(applyTitle);
+    const titleElement = document.querySelector("title");
+    observer.observe(document.head, { childList: true, subtree: true });
+    if (titleElement) observer.observe(titleElement, { childList: true });
+
+    return () => observer.disconnect();
   }, [pathname, title]);
 
   return null;
