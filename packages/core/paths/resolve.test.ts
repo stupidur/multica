@@ -15,6 +15,8 @@ function makeWs(slug: string): Workspace {
     issue_prefix: slug.toUpperCase(),
     created_at: "",
     updated_at: "",
+    home_tenant_id: null,
+    visibility: "tenant",
   };
 }
 

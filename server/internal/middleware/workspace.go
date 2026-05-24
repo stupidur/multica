@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -200,27 +201,82 @@ func buildMiddleware(queries *db.Queries, resolve workspaceResolver, roles []str
 				UserID:      userUUID,
 				WorkspaceID: wsUUID,
 			})
-			if err != nil {
-				writeError(w, http.StatusNotFound, "workspace not found")
+			if err == nil {
+				if len(roles) > 0 {
+					allowed := false
+					for _, role := range roles {
+						if member.Role == role {
+							allowed = true
+							break
+						}
+					}
+					if !allowed {
+						if !allowTenantAdmin(r, queries, wsUUID, userUUID) {
+							writeError(w, http.StatusForbidden, "insufficient permissions")
+							return
+						}
+						member = db.Member{WorkspaceID: wsUUID, UserID: userUUID, Role: "admin"}
+					}
+				}
+
+				ctx := SetMemberContext(r.Context(), workspaceID, member)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			if len(roles) > 0 {
-				allowed := false
-				for _, role := range roles {
-					if member.Role == role {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					writeError(w, http.StatusForbidden, "insufficient permissions")
+			if len(roles) == 0 {
+				if tenantMember, ok := allowTenantWorkspaceAccess(r, queries, wsUUID, userUUID); ok {
+					ctx := SetMemberContext(r.Context(), workspaceID, tenantMember)
+					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
+			} else if allowTenantAdmin(r, queries, wsUUID, userUUID) {
+				ctx := SetMemberContext(r.Context(), workspaceID, db.Member{WorkspaceID: wsUUID, UserID: userUUID, Role: "admin"})
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
 			}
 
-			ctx := SetMemberContext(r.Context(), workspaceID, member)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
 		})
 	}
+}
+
+func allowTenantWorkspaceAccess(r *http.Request, queries *db.Queries, workspaceID, userID pgtype.UUID) (db.Member, bool) {
+	tenantID := r.Header.Get("X-Lark-Tenant-ID")
+	if tenantID == "" {
+		return db.Member{}, false
+	}
+	tenantUUID, err := util.ParseUUID(tenantID)
+	if err != nil {
+		return db.Member{}, false
+	}
+	ws, err := queries.GetWorkspace(r.Context(), workspaceID)
+	if err != nil {
+		return db.Member{}, false
+	}
+	if ws.Visibility != "tenant" || !ws.HomeTenantID.Valid || ws.HomeTenantID != tenantUUID {
+		return db.Member{}, false
+	}
+	return db.Member{WorkspaceID: workspaceID, UserID: userID, Role: "member", CreatedAt: ws.CreatedAt}, true
+}
+
+func allowTenantAdmin(r *http.Request, queries *db.Queries, workspaceID, userID pgtype.UUID) bool {
+	tenantID := r.Header.Get("X-Lark-Tenant-ID")
+	if tenantID == "" {
+		return false
+	}
+	tenantUUID, err := util.ParseUUID(tenantID)
+	if err != nil {
+		return false
+	}
+	ws, err := queries.GetWorkspace(r.Context(), workspaceID)
+	if err != nil || !ws.HomeTenantID.Valid || ws.HomeTenantID != tenantUUID {
+		return false
+	}
+	_, err = queries.GetLarkTenantAdminByTenantAndUser(r.Context(), db.GetLarkTenantAdminByTenantAndUserParams{
+		TenantID: tenantUUID,
+		UserID:   userID,
+	})
+	return err == nil
 }

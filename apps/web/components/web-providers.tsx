@@ -12,6 +12,7 @@ import {
   clearLoggedInCookie,
 } from "@/features/auth/auth-cookie";
 import { PageviewTracker } from "./pageview-tracker";
+import { TenantDocumentTitle } from "./tenant-document-title";
 
 // Legacy token in localStorage → keep this session in token mode so users who
 // logged in before the cookie-auth migration stay authed. They migrate to
@@ -86,6 +87,7 @@ export function WebProviders({
           a client component mounted this high in the tree. */}
       <Suspense fallback={null}>
         <PageviewTracker />
+        <TenantDocumentTitle />
       </Suspense>
       <WebNavigationProvider>{children}</WebNavigationProvider>
     </CoreProvider>

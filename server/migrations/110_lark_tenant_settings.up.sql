@@ -1,0 +1,1 @@
+ALTER TABLE lark_tenant ADD COLUMN settings JSONB NOT NULL DEFAULT '{}';

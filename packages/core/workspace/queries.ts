@@ -26,6 +26,13 @@ export function workspaceListOptions() {
   });
 }
 
+export function tenantWorkspaceListOptions() {
+  return queryOptions({
+    queryKey: ["workspaces", "tenant", "list"],
+    queryFn: () => api.listTenantWorkspaces(),
+  });
+}
+
 /** Resolves the workspace whose slug matches, from the cached workspace list. */
 export function workspaceBySlugOptions(slug: string) {
   return queryOptions({

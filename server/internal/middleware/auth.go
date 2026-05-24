@@ -120,6 +120,9 @@ func Auth(queries *db.Queries, patCache *auth.PATCache) func(http.Handler) http.
 			if email, ok := claims["email"].(string); ok {
 				r.Header.Set("X-User-Email", email)
 			}
+			if tenantID, ok := claims["lark_tenant_id"].(string); ok && strings.TrimSpace(tenantID) != "" {
+				r.Header.Set("X-Lark-Tenant-ID", tenantID)
+			}
 
 			next.ServeHTTP(w, r)
 		})

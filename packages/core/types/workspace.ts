@@ -10,6 +10,8 @@ export interface Workspace {
   slug: string;
   description: string | null;
   context: string | null;
+  home_tenant_id: string | null;
+  visibility: "private" | "tenant";
   settings: Record<string, unknown>;
   repos: WorkspaceRepo[];
   issue_prefix: string;

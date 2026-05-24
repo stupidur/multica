@@ -55,7 +55,7 @@ func invitationToResponse(inv db.WorkspaceInvitation) InvitationResponse {
 
 func (h *Handler) CreateInvitation(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	requester, ok := h.workspaceMember(w, r, workspaceID)
+	requester, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
 	if !ok {
 		return
 	}
@@ -227,6 +227,9 @@ func (h *Handler) RevokeInvitation(w http.ResponseWriter, r *http.Request) {
 	invitationID := chi.URLParam(r, "invitationId")
 	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
 	if !ok {
+		return
+	}
+	if _, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin"); !ok {
 		return
 	}
 	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, "invitation id")

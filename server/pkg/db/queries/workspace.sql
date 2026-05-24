@@ -1,11 +1,21 @@
 -- name: ListWorkspaces :many
 SELECT w.id, w.name, w.slug, w.description, w.settings,
        w.created_at, w.updated_at, w.context, w.repos,
-       w.issue_prefix, w.issue_counter
+       w.issue_prefix, w.issue_counter, w.home_tenant_id, w.visibility
 FROM member m
 JOIN workspace w ON w.id = m.workspace_id
 WHERE m.user_id = $1
 ORDER BY w.created_at ASC;
+
+-- name: ListTenantWorkspaces :many
+SELECT * FROM workspace
+WHERE home_tenant_id = $1
+ORDER BY created_at ASC;
+
+-- name: ListTenantVisibleWorkspaces :many
+SELECT * FROM workspace
+WHERE home_tenant_id = $1 AND visibility = 'tenant'
+ORDER BY created_at ASC;
 
 -- name: GetWorkspace :one
 SELECT * FROM workspace
@@ -16,8 +26,8 @@ SELECT * FROM workspace
 WHERE slug = $1;
 
 -- name: CreateWorkspace :one
-INSERT INTO workspace (name, slug, description, context, issue_prefix)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO workspace (name, slug, description, context, issue_prefix, home_tenant_id, visibility)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: UpdateWorkspace :one
@@ -28,6 +38,7 @@ UPDATE workspace SET
     settings = COALESCE(sqlc.narg('settings'), settings),
     repos = COALESCE(sqlc.narg('repos'), repos),
     issue_prefix = COALESCE(sqlc.narg('issue_prefix'), issue_prefix),
+    visibility = COALESCE(sqlc.narg('visibility'), visibility),
     updated_at = now()
 WHERE id = $1
 RETURNING *;

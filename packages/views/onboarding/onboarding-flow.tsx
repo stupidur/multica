@@ -14,7 +14,8 @@ import {
   type OnboardingStep,
   type QuestionnaireAnswers,
 } from "@multica/core/onboarding";
-import { workspaceListOptions } from "@multica/core/workspace/queries";
+import { workspaceListOptions, tenantWorkspaceListOptions } from "@multica/core/workspace/queries";
+import { api } from "@multica/core/api";
 import type { AgentRuntime, Workspace } from "@multica/core/types";
 import { StepWelcome } from "./steps/step-welcome";
 import { StepSource } from "./steps/step-source";
@@ -143,8 +144,19 @@ export function OnboardingFlow({
     ...workspaceListOptions(),
     enabled: step === "welcome" || step === "workspace",
   });
+  const { data: tenantWorkspaces = [], isFetched: tenantWorkspacesFetched } = useQuery({
+    ...tenantWorkspaceListOptions(),
+    enabled: step === "welcome" || step === "workspace",
+  });
+  const { data: tenantRoleData } = useQuery({
+    queryKey: ["lark", "tenant", "role"],
+    queryFn: () => api.getTenantRole(),
+    enabled: step === "welcome" || step === "workspace",
+  });
   const existingWorkspace = workspace ?? workspaces[0] ?? null;
   const canSkipWelcome = workspacesFetched && workspaces.length > 0;
+  const hasTenantWorkspace = tenantWorkspacesFetched && tenantWorkspaces.length > 0;
+  const isTenantAdmin = tenantRoleData?.role === "owner" || tenantRoleData?.role === "admin";
   const startedEmittedRef = useRef(false);
   useEffect(() => {
     if (startedEmittedRef.current || !workspacesFetched) return;
@@ -323,6 +335,11 @@ export function OnboardingFlow({
   }
 
   if (step === "workspace") {
+    if (!isTenantAdmin && hasTenantWorkspace) {
+      void completeOnboarding("skip_existing", tenantWorkspaces[0]?.id);
+      onComplete(tenantWorkspaces[0] ?? undefined);
+      return null;
+    }
     return (
       <StepWorkspace
         existing={existingWorkspace}

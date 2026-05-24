@@ -141,6 +141,8 @@ describe("applyWorkspaceUpdatedToCache", () => {
       issue_prefix: "TES",
       created_at: "2026-05-18T00:00:00Z",
       updated_at: "2026-05-18T00:00:00Z",
+      home_tenant_id: null,
+      visibility: "tenant",
       ...overrides,
     };
   }

@@ -26,6 +26,8 @@ function makeWorkspace(over: Partial<Workspace>): Workspace {
     issue_prefix: "DEF",
     created_at: "",
     updated_at: "",
+    home_tenant_id: null,
+    visibility: "tenant" as const,
     ...over,
   };
 }

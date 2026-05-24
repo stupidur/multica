@@ -33,6 +33,8 @@ export const mockWorkspace: Workspace = {
   issue_prefix: "TES",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+  home_tenant_id: null,
+  visibility: "tenant" as const,
 };
 
 // Mock members

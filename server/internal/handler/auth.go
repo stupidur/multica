@@ -188,13 +188,21 @@ func verifyPassword(hash, password string) bool {
 }
 
 func (h *Handler) issueJWT(user db.User) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	return h.issueJWTForTenant(user, "")
+}
+
+func (h *Handler) issueJWTForTenant(user db.User, larkTenantID string) (string, error) {
+	claims := jwt.MapClaims{
 		"sub":   uuidToString(user.ID),
 		"email": user.Email,
 		"name":  user.Name,
 		"exp":   time.Now().Add(auth.AuthTokenTTL()).Unix(),
 		"iat":   time.Now().Unix(),
-	})
+	}
+	if strings.TrimSpace(larkTenantID) != "" {
+		claims["lark_tenant_id"] = larkTenantID
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(auth.JWTSecret())
 }
 
@@ -718,7 +726,7 @@ func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenString, err := h.issueJWT(user)
+	tokenString, err := h.issueJWTForTenant(user, requestLarkTenantID(r))
 	if err != nil {
 		slog.Warn("cli-token: failed to issue JWT", append(logger.RequestAttrs(r), "error", err, "user_id", userID)...)
 		writeError(w, http.StatusInternalServerError, "failed to generate token")

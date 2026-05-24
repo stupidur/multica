@@ -38,6 +38,8 @@ type WorkspaceResponse struct {
 	Slug        string  `json:"slug"`
 	Description *string `json:"description"`
 	Context     *string `json:"context"`
+	HomeTenantID *string `json:"home_tenant_id"`
+	Visibility   string  `json:"visibility"`
 	Settings    any     `json:"settings"`
 	Repos       any     `json:"repos"`
 	IssuePrefix string  `json:"issue_prefix"`
@@ -66,6 +68,8 @@ func workspaceToResponse(w db.Workspace) WorkspaceResponse {
 		Slug:        w.Slug,
 		Description: textToPtr(w.Description),
 		Context:     textToPtr(w.Context),
+		HomeTenantID: uuidToPtr(w.HomeTenantID),
+		Visibility:   w.Visibility,
 		Settings:    settings,
 		Repos:       repos,
 		IssuePrefix: w.IssuePrefix,
@@ -103,6 +107,27 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list workspaces")
 		return
 	}
+	if tenantID := requestLarkTenantID(r); tenantID != "" {
+		tenantUUID, ok := parseUUIDOrBadRequest(w, tenantID, "lark tenant id")
+		if !ok {
+			return
+		}
+		tenantWorkspaces, tenantErr := h.Queries.ListTenantVisibleWorkspaces(r.Context(), tenantUUID)
+		if tenantErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list workspaces")
+			return
+		}
+		seen := make(map[string]struct{}, len(workspaces))
+		for _, ws := range workspaces {
+			seen[uuidToString(ws.ID)] = struct{}{}
+		}
+		for _, ws := range tenantWorkspaces {
+			if _, exists := seen[uuidToString(ws.ID)]; exists {
+				continue
+			}
+			workspaces = append(workspaces, ws)
+		}
+	}
 
 	resp := make([]WorkspaceResponse, len(workspaces))
 	for i, ws := range workspaces {
@@ -133,6 +158,7 @@ type CreateWorkspaceRequest struct {
 	Description *string `json:"description"`
 	Context     *string `json:"context"`
 	IssuePrefix *string `json:"issue_prefix"`
+	Visibility  string  `json:"visibility"`
 }
 
 func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +175,7 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	req.Name = strings.TrimSpace(req.Name)
 	req.Slug = strings.ToLower(strings.TrimSpace(req.Slug))
+	req.Visibility = strings.TrimSpace(req.Visibility)
 	if req.Name == "" || req.Slug == "" {
 		writeError(w, http.StatusBadRequest, "name and slug are required")
 		return
@@ -159,6 +186,33 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	if isReservedSlug(req.Slug) {
 		writeError(w, http.StatusBadRequest, "slug is reserved")
+		return
+	}
+	if req.Visibility == "" {
+		req.Visibility = "private"
+	}
+	if req.Visibility != "private" && req.Visibility != "tenant" {
+		writeError(w, http.StatusBadRequest, "invalid workspace visibility")
+		return
+	}
+	homeTenantID := pgtype.UUID{}
+	if tenantID := requestLarkTenantID(r); tenantID != "" {
+		tenantUUID, ok := parseUUIDOrBadRequest(w, tenantID, "lark tenant id")
+		if !ok {
+			return
+		}
+		if _, err := h.getTenantAdmin(r.Context(), userID, tenantUUID); err != nil {
+			if !isNotFound(err) {
+				writeError(w, http.StatusInternalServerError, "failed to verify tenant admin")
+				return
+			}
+			writeError(w, http.StatusForbidden, "only tenant admins can create workspaces")
+			return
+		}
+		homeTenantID = tenantUUID
+	}
+	if req.Visibility == "tenant" && !homeTenantID.Valid {
+		writeError(w, http.StatusBadRequest, "tenant visibility requires a Lark tenant session")
 		return
 	}
 
@@ -181,6 +235,8 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		Description: ptrToText(req.Description),
 		Context:     ptrToText(req.Context),
 		IssuePrefix: issuePrefix,
+		HomeTenantID: homeTenantID,
+		Visibility:   req.Visibility,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -233,12 +289,16 @@ type UpdateWorkspaceRequest struct {
 	Settings    any     `json:"settings"`
 	Repos       any     `json:"repos"`
 	IssuePrefix *string `json:"issue_prefix"`
+	Visibility  *string `json:"visibility"`
 }
 
 func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := workspaceIDFromURL(r, "id")
 	idUUID, ok := parseUUIDOrBadRequest(w, id, "workspace id")
 	if !ok {
+		return
+	}
+	if _, ok := h.requireWorkspaceRole(w, r, id, "workspace not found", "owner", "admin"); !ok {
 		return
 	}
 
@@ -278,6 +338,14 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		if prefix != "" {
 			params.IssuePrefix = pgtype.Text{String: prefix, Valid: true}
 		}
+	}
+	if req.Visibility != nil {
+		visibility := strings.TrimSpace(*req.Visibility)
+		if visibility != "private" && visibility != "tenant" {
+			writeError(w, http.StatusBadRequest, "invalid workspace visibility")
+			return
+		}
+		params.Visibility = pgtype.Text{String: visibility, Valid: true}
 	}
 
 	ws, err := h.Queries.UpdateWorkspace(r.Context(), params)
@@ -390,7 +458,7 @@ func normalizeMemberRole(role string) (string, bool) {
 
 func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	requester, ok := h.workspaceMember(w, r, workspaceID)
+	requester, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
 	if !ok {
 		return
 	}
@@ -467,10 +535,11 @@ type UpdateMemberRequest struct {
 
 func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	requester, ok := h.workspaceMember(w, r, workspaceID)
+	requester, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
 	if !ok {
 		return
 	}
+	isTenantAdmin := h.requestIsWorkspaceTenantAdmin(r, workspaceID)
 
 	memberID := chi.URLParam(r, "memberId")
 	memberUUID, ok := parseUUIDOrBadRequest(w, memberID, "member id")
@@ -499,7 +568,7 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if (target.Role == "owner" || role == "owner") && requester.Role != "owner" {
+	if (target.Role == "owner" || role == "owner") && requester.Role != "owner" && !isTenantAdmin {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
@@ -543,10 +612,11 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	requester, ok := h.workspaceMember(w, r, workspaceID)
+	requester, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
 	if !ok {
 		return
 	}
+	isTenantAdmin := h.requestIsWorkspaceTenantAdmin(r, workspaceID)
 
 	memberID := chi.URLParam(r, "memberId")
 	memberUUID, ok := parseUUIDOrBadRequest(w, memberID, "member id")
@@ -559,7 +629,7 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if target.Role == "owner" && requester.Role != "owner" {
+	if target.Role == "owner" && requester.Role != "owner" && !isTenantAdmin {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
@@ -606,6 +676,10 @@ func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !member.ID.Valid {
+		writeError(w, http.StatusBadRequest, "tenant-shared workspace access cannot be left directly")
+		return
+	}
 
 	if member.Role == "owner" {
 		members, err := h.Queries.ListMembers(r.Context(), member.WorkspaceID)
@@ -644,6 +718,12 @@ func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
+	if _, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id"); !ok {
+		return
+	}
+	if _, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin"); !ok {
+		return
+	}
 
 	// Defense in depth: the route is already gated by the
 	// RequireWorkspaceRoleFromURL("owner") middleware, but we re-check here
@@ -653,7 +733,7 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if requester.Role != "owner" {
+	if requester.Role != "owner" && !h.requestIsWorkspaceTenantAdmin(r, workspaceID) {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}

@@ -50,6 +50,9 @@ type Config struct {
 	AllowSignup         bool
 	AllowedEmails       []string
 	AllowedEmailDomains []string
+	LarkAppID           string
+	LarkAppSecret       string
+	LarkRedirectURI     string
 	// PublicURL is the absolute base URL the API is reachable at from the
 	// public internet, with no trailing slash (e.g. "https://app.multica.ai").
 	// Used only to build webhook_url responses for autopilot webhook triggers
@@ -273,6 +276,10 @@ func requestUserID(r *http.Request) string {
 	return r.Header.Get("X-User-ID")
 }
 
+func requestLarkTenantID(r *http.Request) string {
+	return r.Header.Get("X-Lark-Tenant-ID")
+}
+
 // resolveActor determines whether the request is from an agent or a human member.
 // To claim "agent" identity the request MUST carry both X-Agent-ID and a valid
 // X-Task-ID, and the task must belong to the claimed agent. Otherwise we fall
@@ -405,6 +412,115 @@ func (h *Handler) getWorkspaceMember(ctx context.Context, userID, workspaceID st
 	})
 }
 
+func (h *Handler) getTenantAdmin(ctx context.Context, userID string, tenantID pgtype.UUID) (db.LarkTenantAdmin, error) {
+	userUUID, err := util.ParseUUID(userID)
+	if err != nil {
+		return db.LarkTenantAdmin{}, err
+	}
+	return h.Queries.GetLarkTenantAdminByTenantAndUser(ctx, db.GetLarkTenantAdminByTenantAndUserParams{
+		TenantID: tenantID,
+		UserID:   userUUID,
+	})
+}
+
+func (h *Handler) canAccessWorkspaceViaTenant(ctx context.Context, userID, workspaceID, larkTenantID string) (db.Member, bool, error) {
+	if larkTenantID == "" {
+		return db.Member{}, false, nil
+	}
+	tenantUUID, err := util.ParseUUID(larkTenantID)
+	if err != nil {
+		return db.Member{}, false, err
+	}
+	userUUID, err := util.ParseUUID(userID)
+	if err != nil {
+		return db.Member{}, false, err
+	}
+	wsUUID, err := util.ParseUUID(workspaceID)
+	if err != nil {
+		return db.Member{}, false, err
+	}
+	ws, err := h.Queries.GetWorkspace(ctx, wsUUID)
+	if err != nil {
+		return db.Member{}, false, err
+	}
+	if ws.Visibility != "tenant" || !ws.HomeTenantID.Valid || ws.HomeTenantID != tenantUUID {
+		return db.Member{}, false, nil
+	}
+	return db.Member{
+		WorkspaceID: ws.ID,
+		UserID:      userUUID,
+		Role:        "member",
+		CreatedAt:   ws.CreatedAt,
+	}, true, nil
+}
+
+func (h *Handler) hasWorkspaceManagerAccess(ctx context.Context, userID, workspaceID, larkTenantID string, roles ...string) (db.Member, bool, error) {
+	member, err := h.getWorkspaceMember(ctx, userID, workspaceID)
+	if err == nil {
+		if len(roles) == 0 || roleAllowed(member.Role, roles...) {
+			return member, true, nil
+		}
+	}
+	if larkTenantID == "" {
+		if err != nil {
+			return db.Member{}, false, err
+		}
+		return db.Member{}, false, nil
+	}
+	tenantUUID, err := util.ParseUUID(larkTenantID)
+	if err != nil {
+		return db.Member{}, false, err
+	}
+	wsUUID, err := util.ParseUUID(workspaceID)
+	if err != nil {
+		return db.Member{}, false, err
+	}
+	ws, err := h.Queries.GetWorkspace(ctx, wsUUID)
+	if err != nil {
+		return db.Member{}, false, err
+	}
+	if !ws.HomeTenantID.Valid || ws.HomeTenantID != tenantUUID {
+		if err != nil {
+			return db.Member{}, false, err
+		}
+		return db.Member{}, false, nil
+	}
+	admin, adminErr := h.getTenantAdmin(ctx, userID, ws.HomeTenantID)
+	if adminErr != nil {
+		if isNotFound(adminErr) {
+			return db.Member{}, false, nil
+		}
+		if err != nil {
+			return db.Member{}, false, err
+		}
+		return db.Member{}, false, adminErr
+	}
+	return db.Member{
+		WorkspaceID: ws.ID,
+		UserID:      admin.UserID,
+		Role:        "admin",
+		CreatedAt:   admin.CreatedAt,
+	}, true, nil
+}
+
+func (h *Handler) requestIsWorkspaceTenantAdmin(r *http.Request, workspaceID string) bool {
+	userID := requestUserID(r)
+	larkTenantID := requestLarkTenantID(r)
+	if userID == "" || larkTenantID == "" || workspaceID == "" {
+		return false
+	}
+	wsUUID, err := util.ParseUUID(workspaceID)
+	if err != nil {
+		return false
+	}
+	ws, err := h.Queries.GetWorkspace(r.Context(), wsUUID)
+	if err != nil || !ws.HomeTenantID.Valid || uuidToString(ws.HomeTenantID) != larkTenantID {
+		return false
+	}
+	_, err = h.getTenantAdmin(r.Context(), userID, ws.HomeTenantID)
+	return err == nil
+}
+
 func (h *Handler) requireWorkspaceMember(w http.ResponseWriter, r *http.Request, workspaceID, notFoundMsg string) (db.Member, bool) {
 	if workspaceID == "" {
 		writeError(w, http.StatusBadRequest, "workspace_id is required")
@@ -417,20 +533,31 @@ func (h *Handler) requireWorkspaceMember(w http.ResponseWriter, r *http.Request,
 	}
 
 	member, err := h.getWorkspaceMember(r.Context(), userID, workspaceID)
+	if err == nil {
+		return member, true
+	}
+	if tenantMember, ok, tenantErr := h.canAccessWorkspaceViaTenant(r.Context(), userID, workspaceID, requestLarkTenantID(r)); tenantErr == nil && ok {
+		return tenantMember, true
+	}
+	writeError(w, http.StatusNotFound, notFoundMsg)
+	return db.Member{}, false
+}
+
+func (h *Handler) requireWorkspaceRole(w http.ResponseWriter, r *http.Request, workspaceID, notFoundMsg string, roles ...string) (db.Member, bool) {
+	if workspaceID == "" {
+		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		return db.Member{}, false
+	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return db.Member{}, false
+	}
+	member, allowed, err := h.hasWorkspaceManagerAccess(r.Context(), userID, workspaceID, requestLarkTenantID(r), roles...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, notFoundMsg)
 		return db.Member{}, false
 	}
-
-	return member, true
-}
-
-func (h *Handler) requireWorkspaceRole(w http.ResponseWriter, r *http.Request, workspaceID, notFoundMsg string, roles ...string) (db.Member, bool) {
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, notFoundMsg)
-	if !ok {
-		return db.Member{}, false
-	}
-	if !roleAllowed(member.Role, roles...) {
+	if !allowed {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return db.Member{}, false
 	}

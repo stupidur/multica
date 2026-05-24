@@ -30,12 +30,21 @@
       "notifications": "通知",
       "tokens": "API Token",
       "general": "通用",
+      "system": "系统",
       "repositories": "代码仓库",
       "github": "GitHub",
       "integrations": "集成",
       "labs": "实验室",
       "members": "成员"
-    }
+    },
+    "save": "保存",
+    "system_saved": "系统设置已保存",
+    "system_save_failed": "保存系统设置失败",
+    "system_admin_only": "仅管理员可修改系统设置。",
+    "system_description": "配置此工作区的系统级设置。",
+    "system_title_label": "页面标题",
+    "system_title_placeholder": "输入页面标题",
+    "system_title_hint": "此标题将显示在浏览器标签页上。"
   },
   "account": {
     "section_profile": "个人资料",

@@ -134,6 +134,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		AllowSignup:              os.Getenv("ALLOW_SIGNUP") != "false",
 		AllowedEmails:            splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
 		AllowedEmailDomains:      splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
+		LarkAppID:                strings.TrimSpace(os.Getenv("LARK_APP_ID")),
+		LarkAppSecret:            strings.TrimSpace(os.Getenv("LARK_APP_SECRET")),
+		LarkRedirectURI:          strings.TrimSpace(os.Getenv("LARK_REDIRECT_URI")),
 		PublicURL:                strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_PUBLIC_URL")), "/"),
 		TrustedProxies:           parseTrustedProxies(os.Getenv("MULTICA_TRUSTED_PROXIES")),
 		CloudRuntimeFleetURL:     cloudRuntimeFleetURLFromEnv(),
@@ -251,6 +254,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
 	r.With(authVerifyRL).Post("/auth/password-login", h.PasswordLogin)
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
+	r.With(authVerifyRL).Post("/auth/lark", h.LarkLogin)
 	r.Post("/auth/logout", h.Logout)
 
 	// Public API
@@ -373,6 +377,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Get("/api/invitations/{id}", h.GetMyInvitation)
 		r.Post("/api/invitations/{id}/accept", h.AcceptInvitation)
 		r.Post("/api/invitations/{id}/decline", h.DeclineInvitation)
+		r.Get("/api/lark/workspaces", h.ListCurrentTenantWorkspaces)
+		r.Get("/api/lark/tenant/settings", h.GetTenantSettings)
+		r.Patch("/api/lark/tenant/settings", h.PatchTenantSettings)
+		r.Get("/api/lark/tenant/role", h.GetTenantRole)
 
 		r.Route("/api/tokens", func(r chi.Router) {
 			r.Get("/", h.ListPersonalAccessTokens)

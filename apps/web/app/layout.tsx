@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import Script from "next/script";
 import { Inter, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@multica/ui/components/ui/sonner";
@@ -116,6 +117,13 @@ const HTML_LANG: Record<SupportedLocale, string> = {
   "zh-Hans": "zh-CN",
 };
 
+function feishuDevtoolsScriptUrl() {
+  const raw = process.env.FEISHU_DEVTOOLS_SCRIPT_URL?.trim();
+  if (!raw) return "";
+  if (!raw.startsWith("https://lf-package-cn.feishucdn.com/")) return "";
+  return raw;
+}
+
 export default async function RootLayout({
   children,
 }: {
@@ -127,6 +135,7 @@ export default async function RootLayout({
     ? headerLocale
     : DEFAULT_LOCALE;
   const resources = { [locale]: RESOURCES[locale] };
+  const feishuDebugScript = feishuDevtoolsScriptUrl();
 
   return (
     <html
@@ -134,6 +143,11 @@ export default async function RootLayout({
       suppressHydrationWarning
       className={cn("antialiased font-sans h-full", inter.variable, geistMono.variable, sourceSerif.variable)}
     >
+      {feishuDebugScript ? (
+        <head>
+          <Script src={feishuDebugScript} strategy="beforeInteractive" />
+        </head>
+      ) : null}
       <body className="h-full overflow-hidden">
         <ThemeProvider>
           <WebProviders locale={locale} resources={resources}>

@@ -390,6 +390,13 @@ export class ApiClient {
     });
   }
 
+  async larkLogin(code: string, redirectUri: string): Promise<LoginResponse> {
+    return this.fetch("/auth/lark", {
+      method: "POST",
+      body: JSON.stringify({ code, redirect_uri: redirectUri }),
+    });
+  }
+
   async logout(): Promise<void> {
     await this.fetch("/auth/logout", { method: "POST" });
   }
@@ -1296,6 +1303,7 @@ export class ApiClient {
     cdn_domain: string;
     allow_signup: boolean;
     google_client_id?: string;
+    lark_app_id?: string;
     posthog_key?: string;
     posthog_host?: string;
     analytics_environment?: string;
@@ -1308,6 +1316,14 @@ export class ApiClient {
     return this.fetch("/api/workspaces");
   }
 
+  async listTenantAdminWorkspaces(): Promise<Workspace[]> {
+    return this.fetch("/api/lark/workspaces");
+  }
+
+  async listTenantWorkspaces(): Promise<Workspace[]> {
+    return this.fetch("/api/lark/workspaces");
+  }
+
   async getWorkspace(id: string): Promise<Workspace> {
     return this.fetch(`/api/workspaces/${id}`);
   }
@@ -1317,6 +1333,7 @@ export class ApiClient {
     slug: string;
     description?: string;
     context?: string;
+    visibility?: "private" | "tenant";
   }): Promise<Workspace> {
     return this.fetch("/api/workspaces", {
       method: "POST",
@@ -1333,6 +1350,7 @@ export class ApiClient {
       settings?: Record<string, unknown>;
       repos?: WorkspaceRepo[];
       issue_prefix?: string;
+      visibility?: "private" | "tenant";
     },
   ): Promise<Workspace> {
     return this.fetch(`/api/workspaces/${id}`, {
@@ -2070,5 +2088,21 @@ export class ApiClient {
     issueId: string,
   ): Promise<{ pull_requests: GitHubPullRequest[] }> {
     return this.fetch(`/api/issues/${issueId}/pull-requests`);
+  }
+
+  // Lark tenant settings
+  async getTenantSettings(): Promise<{ title: string }> {
+    return this.fetch("/api/lark/tenant/settings");
+  }
+
+  async patchTenantSettings(title: string): Promise<{ title: string }> {
+    return this.fetch("/api/lark/tenant/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
+  }
+
+  async getTenantRole(): Promise<{ role: string }> {
+    return this.fetch("/api/lark/tenant/role");
   }
 }

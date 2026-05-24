@@ -12,6 +12,7 @@ import {
   Bell,
   Plug,
   LockKeyhole,
+  Cog,
 } from "lucide-react";
 import { GitHubMark } from "./github-mark";
 import {
@@ -33,6 +34,7 @@ import { IntegrationsTab } from "./integrations-tab";
 import { LabsTab } from "./labs-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { PasswordTab } from "./password-tab";
+import { SystemTab } from "./system-tab";
 import { useT } from "../../i18n";
 
 const ACCOUNT_TAB_KEYS = [
@@ -52,6 +54,7 @@ const ACCOUNT_TAB_ICONS = {
 
 const WORKSPACE_TAB_KEYS = [
   "general",
+  "system",
   "repositories",
   "github",
   "integrations",
@@ -60,6 +63,7 @@ const WORKSPACE_TAB_KEYS = [
 ] as const;
 const WORKSPACE_TAB_VALUES = {
   general: "workspace",
+  system: "system",
   repositories: "repositories",
   github: "github",
   integrations: "integrations",
@@ -68,6 +72,7 @@ const WORKSPACE_TAB_VALUES = {
 } as const;
 const WORKSPACE_TAB_ICONS = {
   general: Settings,
+  system: Cog,
   repositories: FolderGit2,
   github: GitHubMark,
   integrations: Plug,
@@ -189,6 +194,9 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           </TabsContent>
           <TabsContent value="workspace">
             <WorkspaceTab />
+          </TabsContent>
+          <TabsContent value="system">
+            <SystemTab />
           </TabsContent>
           <TabsContent value="repositories">
             <RepositoriesTab />

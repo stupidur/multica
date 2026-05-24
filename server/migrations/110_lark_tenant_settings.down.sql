@@ -1,0 +1,1 @@
+ALTER TABLE lark_tenant DROP COLUMN IF EXISTS settings;

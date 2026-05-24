@@ -42,6 +42,8 @@ const workspace: Workspace = {
   issue_prefix: "TST",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+  home_tenant_id: null,
+  visibility: "tenant" as const,
 };
 
 const baseIssue: Issue = {
