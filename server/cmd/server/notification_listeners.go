@@ -19,7 +19,6 @@ type mention struct {
 	ID   string // user_id, agent_id, issue_id, or "all"
 }
 
-
 // statusLabels maps DB status values to human-readable labels for notifications.
 var statusLabels = map[string]string{
 	"backlog":     "Backlog",
@@ -56,6 +55,10 @@ func priorityLabel(p string) string {
 
 var emptyDetails = []byte("{}")
 
+type inboxCardNotifier interface {
+	SendInboxCard(ctx context.Context, req handler.LarkInboxCardRequest) error
+}
+
 // parseMentions extracts mentions from markdown content.
 // Delegates to the shared util.ParseMentions and converts to the local type.
 func parseMentions(content string) []mention {
@@ -78,19 +81,19 @@ var parentBubbleNotifTypes = map[string]bool{
 // notifTypeToGroup maps each InboxItemType to a user-configurable preference
 // group. Types not in this map are always delivered (not configurable).
 var notifTypeToGroup = map[string]string{
-	"issue_assigned":  "assignments",
-	"unassigned":      "assignments",
-	"assignee_changed": "assignments",
-	"status_changed":  "status_changes",
-	"new_comment":     "comments",
-	"mentioned":       "comments",
-	"priority_changed": "updates",
+	"issue_assigned":     "assignments",
+	"unassigned":         "assignments",
+	"assignee_changed":   "assignments",
+	"status_changed":     "status_changes",
+	"new_comment":        "comments",
+	"mentioned":          "comments",
+	"priority_changed":   "updates",
 	"start_date_changed": "updates",
-	"due_date_changed": "updates",
-	"task_completed":  "agent_activity",
-	"task_failed":     "agent_activity",
-	"agent_blocked":   "agent_activity",
-	"agent_completed": "agent_activity",
+	"due_date_changed":   "updates",
+	"task_completed":     "agent_activity",
+	"task_failed":        "agent_activity",
+	"agent_blocked":      "agent_activity",
+	"agent_completed":    "agent_activity",
 }
 
 // isNotifMuted returns true if the given notification type is muted for a user
@@ -219,6 +222,7 @@ func notifySubscribers(
 	ctx context.Context,
 	queries *db.Queries,
 	bus *events.Bus,
+	cardNotifier inboxCardNotifier,
 	issueID string,
 	issueStatus string,
 	workspaceID string,
@@ -231,7 +235,7 @@ func notifySubscribers(
 	details []byte,
 ) {
 	notified := notifyIssueSubscribers(ctx, queries, bus,
-		issueID, issueID, issueStatus, workspaceID, e, exclude,
+		issueID, issueID, issueStatus, workspaceID, e, exclude, cardNotifier,
 		notifType, severity, title, body, details)
 
 	// Only a small allowlist of event types bubbles to parent subscribers.
@@ -263,7 +267,7 @@ func notifySubscribers(
 	// points to the sub-issue so the user navigates to the actual change.
 	parentID := util.UUIDToString(issue.ParentIssueID)
 	notifyIssueSubscribers(ctx, queries, bus,
-		parentID, issueID, issueStatus, workspaceID, e, parentExclude,
+		parentID, issueID, issueStatus, workspaceID, e, parentExclude, cardNotifier,
 		notifType, severity, title, body, details)
 }
 
@@ -282,6 +286,7 @@ func notifyIssueSubscribers(
 	workspaceID string,
 	e events.Event,
 	exclude map[string]bool,
+	cardNotifier inboxCardNotifier,
 	notifType string,
 	severity string,
 	title string,
@@ -347,6 +352,20 @@ func notifyIssueSubscribers(
 				"subscriber_id", subID, "type", notifType, "error", err)
 			continue
 		}
+		if cardNotifier != nil {
+			if err := cardNotifier.SendInboxCard(ctx, handler.LarkInboxCardRequest{
+				RecipientUserID: subID,
+				TenantID:        requestLarkTenantIDFromEvent(e),
+				WorkspaceID:     workspaceID,
+				IssueID:         targetIssueID,
+				IssueStatus:     issueStatus,
+				Title:           title,
+				Body:            body,
+			}); err != nil {
+				slog.Warn("subscriber lark card notification failed",
+					"subscriber_id", subID, "type", notifType, "error", err)
+			}
+		}
 
 		notified[subID] = true
 		resp := inboxItemToResponse(item)
@@ -369,6 +388,7 @@ func notifyDirect(
 	ctx context.Context,
 	queries *db.Queries,
 	bus *events.Bus,
+	cardNotifier inboxCardNotifier,
 	recipientType string,
 	recipientID string,
 	workspaceID string,
@@ -412,6 +432,20 @@ func notifyDirect(
 			"recipient_id", recipientID, "type", notifType, "error", err)
 		return
 	}
+	if cardNotifier != nil && recipientType == "member" {
+		if err := cardNotifier.SendInboxCard(ctx, handler.LarkInboxCardRequest{
+			RecipientUserID: recipientID,
+			TenantID:        requestLarkTenantIDFromEvent(e),
+			WorkspaceID:     workspaceID,
+			IssueID:         issueID,
+			IssueStatus:     issueStatus,
+			Title:           title,
+			Body:            body,
+		}); err != nil {
+			slog.Warn("direct lark card notification failed",
+				"recipient_id", recipientID, "type", notifType, "error", err)
+		}
+	}
 
 	resp := inboxItemToResponse(item)
 	resp["issue_status"] = issueStatus
@@ -436,8 +470,10 @@ func notifyMentionedMembers(
 	issueTitle string,
 	issueStatus string,
 	title string,
+	body string,
 	skip map[string]bool,
 	details []byte,
+	cardNotifier inboxCardNotifier,
 ) {
 	// Collect the set of member IDs to notify.
 	recipientIDs := map[string]bool{}
@@ -514,6 +550,7 @@ func notifyMentionedMembers(
 			Severity:      "info",
 			IssueID:       parseUUID(issueID),
 			Title:         title,
+			Body:          util.StrToText(body),
 			ActorType:     util.StrToText(e.ActorType),
 			ActorID:       optionalUUID(e.ActorID),
 			Details:       details,
@@ -521,6 +558,19 @@ func notifyMentionedMembers(
 		if err != nil {
 			slog.Error("mention inbox creation failed", "mentioned_id", id, "error", err)
 			continue
+		}
+		if cardNotifier != nil {
+			if err := cardNotifier.SendInboxCard(context.Background(), handler.LarkInboxCardRequest{
+				RecipientUserID: id,
+				TenantID:        requestLarkTenantIDFromEvent(e),
+				WorkspaceID:     e.WorkspaceID,
+				IssueID:         issueID,
+				IssueStatus:     issueStatus,
+				Title:           title,
+				Body:            body,
+			}); err != nil {
+				slog.Warn("mention lark card notification failed", "mentioned_id", id, "error", err)
+			}
 		}
 		resp := inboxItemToResponse(item)
 		resp["issue_status"] = issueStatus
@@ -541,7 +591,7 @@ func notifyMentionedMembers(
 // NOTE: uses context.Background() because the event bus dispatches synchronously
 // within the HTTP request goroutine. Adding per-handler timeouts is a bus-level
 // concern — see events.Bus for future improvements.
-func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
+func registerNotificationListeners(bus *events.Bus, queries *db.Queries, cardNotifier inboxCardNotifier) {
 	ctx := context.Background()
 
 	// issue:created — Direct notification to assignee if assignee != actor
@@ -561,7 +611,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		// Direct notification to assignee
 		if issue.AssigneeType != nil && issue.AssigneeID != nil {
 			skip[*issue.AssigneeID] = true
-			notifyDirect(ctx, queries, bus,
+			notifyDirect(ctx, queries, bus, cardNotifier,
 				*issue.AssigneeType, *issue.AssigneeID,
 				issue.WorkspaceID, e, issue.ID, issue.Status,
 				"issue_assigned", "action_required",
@@ -575,7 +625,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		if issue.Description != nil && *issue.Description != "" {
 			mentions := parseMentions(*issue.Description)
 			notifyMentionedMembers(bus, queries, e, mentions, issue.ID, issue.Title, issue.Status,
-				issue.Title, skip, emptyDetails)
+				issue.Title, "", skip, emptyDetails, cardNotifier)
 		}
 	})
 
@@ -615,7 +665,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 
 			// Direct: notify new assignee about assignment
 			if issue.AssigneeType != nil && issue.AssigneeID != nil {
-				notifyDirect(ctx, queries, bus,
+				notifyDirect(ctx, queries, bus, cardNotifier,
 					*issue.AssigneeType, *issue.AssigneeID,
 					e.WorkspaceID, e, issue.ID, issue.Status,
 					"issue_assigned", "action_required",
@@ -627,7 +677,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 
 			// Direct: notify old assignee about unassignment
 			if prevAssigneeType != nil && prevAssigneeID != nil && *prevAssigneeType == "member" {
-				notifyDirect(ctx, queries, bus,
+				notifyDirect(ctx, queries, bus, cardNotifier,
 					"member", *prevAssigneeID,
 					e.WorkspaceID, e, issue.ID, issue.Status,
 					"unassigned", "info",
@@ -646,7 +696,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			if issue.AssigneeID != nil {
 				exclude[*issue.AssigneeID] = true
 			}
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			notifySubscribers(ctx, queries, bus, cardNotifier, issue.ID, issue.Status, e.WorkspaceID, e,
 				exclude, "assignee_changed", "info",
 				issue.Title, "",
 				assigneeDetails)
@@ -658,7 +708,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 				"from": prevStatus,
 				"to":   issue.Status,
 			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			notifySubscribers(ctx, queries, bus, cardNotifier, issue.ID, issue.Status, e.WorkspaceID, e,
 				nil, "status_changed", "info",
 				issue.Title, "",
 				statusDetails)
@@ -678,7 +728,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 				"from": prevPriority,
 				"to":   issue.Priority,
 			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			notifySubscribers(ctx, queries, bus, cardNotifier, issue.ID, issue.Status, e.WorkspaceID, e,
 				nil, "priority_changed", "info",
 				issue.Title, "",
 				priorityDetails)
@@ -697,7 +747,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 				"from": prevStartDateStr,
 				"to":   newStartDateStr,
 			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			notifySubscribers(ctx, queries, bus, cardNotifier, issue.ID, issue.Status, e.WorkspaceID, e,
 				nil, "start_date_changed", "info",
 				issue.Title, "",
 				startDateDetails)
@@ -716,7 +766,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 				"from": prevDueDateStr,
 				"to":   newDueDateStr,
 			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			notifySubscribers(ctx, queries, bus, cardNotifier, issue.ID, issue.Status, e.WorkspaceID, e,
 				nil, "due_date_changed", "info",
 				issue.Title, "",
 				dueDateDetails)
@@ -740,7 +790,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 				}
 				skip := map[string]bool{e.ActorID: true}
 				notifyMentionedMembers(bus, queries, e, added, issue.ID, issue.Title, issue.Status,
-					issue.Title, skip, emptyDetails)
+					issue.Title, "", skip, emptyDetails, cardNotifier)
 			}
 		}
 	})
@@ -793,7 +843,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			})
 		}
 
-		notifySubscribers(ctx, queries, bus, issueID, issueStatus, e.WorkspaceID, e,
+		notifySubscribers(ctx, queries, bus, cardNotifier, issueID, issueStatus, e.WorkspaceID, e,
 			nil, "new_comment", "info",
 			issueTitle, commentContent,
 			commentDetails)
@@ -803,7 +853,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		if len(mentions) > 0 {
 			skip := map[string]bool{e.ActorID: true}
 			notifyMentionedMembers(bus, queries, e, mentions, issueID, issueTitle, issueStatus,
-				issueTitle, skip, commentDetails)
+				issueTitle, commentContent, skip, commentDetails, cardNotifier)
 		}
 	})
 
@@ -833,7 +883,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			"emoji": reaction.Emoji,
 		})
 
-		notifyDirect(ctx, queries, bus,
+		notifyDirect(ctx, queries, bus, cardNotifier,
 			creatorType, creatorID,
 			e.WorkspaceID, e, issueID, issueStatus,
 			"reaction_added", "info",
@@ -873,7 +923,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		}
 		details, _ := json.Marshal(detailsMap)
 
-		notifyDirect(ctx, queries, bus,
+		notifyDirect(ctx, queries, bus, cardNotifier,
 			commentAuthorType, commentAuthorID,
 			e.WorkspaceID, e, issueID, issueStatus,
 			"reaction_added", "info",
@@ -907,7 +957,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			exclude[agentID] = true
 		}
 
-		notifySubscribers(ctx, queries, bus, issueID, issue.Status, e.WorkspaceID,
+		notifySubscribers(ctx, queries, bus, cardNotifier, issueID, issue.Status, e.WorkspaceID,
 			events.Event{
 				Type:        e.Type,
 				WorkspaceID: e.WorkspaceID,
@@ -940,4 +990,13 @@ func inboxItemToResponse(item db.InboxItem) map[string]any {
 		"actor_id":       util.UUIDToPtr(item.ActorID),
 		"details":        json.RawMessage(item.Details),
 	}
+}
+
+func requestLarkTenantIDFromEvent(e events.Event) string {
+	if payload, ok := e.Payload.(map[string]any); ok {
+		if tenantID, ok := payload["lark_tenant_id"].(string); ok {
+			return tenantID
+		}
+	}
+	return ""
 }

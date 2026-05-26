@@ -39,6 +39,34 @@ func (q *Queries) GetUserIdentityByProviderTenantExternal(ctx context.Context, a
 	return i, err
 }
 
+const getUserIdentityByUserProviderTenant = `-- name: GetUserIdentityByUserProviderTenant :one
+SELECT id, user_id, provider, tenant_id, external_user_id, union_id, email, created_at, updated_at FROM user_identity
+WHERE user_id = $1 AND provider = $2 AND tenant_id = $3
+`
+
+type GetUserIdentityByUserProviderTenantParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	Provider string      `json:"provider"`
+	TenantID pgtype.UUID `json:"tenant_id"`
+}
+
+func (q *Queries) GetUserIdentityByUserProviderTenant(ctx context.Context, arg GetUserIdentityByUserProviderTenantParams) (UserIdentity, error) {
+	row := q.db.QueryRow(ctx, getUserIdentityByUserProviderTenant, arg.UserID, arg.Provider, arg.TenantID)
+	var i UserIdentity
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Provider,
+		&i.TenantID,
+		&i.ExternalUserID,
+		&i.UnionID,
+		&i.Email,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const upsertUserIdentity = `-- name: UpsertUserIdentity :one
 INSERT INTO user_identity (user_id, provider, tenant_id, external_user_id, union_id, email)
 VALUES ($1, $2, $3, $4, $5, $6)

@@ -2,6 +2,10 @@
 SELECT * FROM user_identity
 WHERE provider = $1 AND tenant_id = $2 AND external_user_id = $3;
 
+-- name: GetUserIdentityByUserProviderTenant :one
+SELECT * FROM user_identity
+WHERE user_id = $1 AND provider = $2 AND tenant_id = $3;
+
 -- name: UpsertUserIdentity :one
 INSERT INTO user_identity (user_id, provider, tenant_id, external_user_id, union_id, email)
 VALUES ($1, $2, $3, $4, $5, $6)

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -18,12 +19,13 @@ import (
 // preferences map so a single endpoint covers all user notification
 // preferences.
 var validNotifGroups = map[string]bool{
-	"assignments":          true,
-	"status_changes":       true,
-	"comments":             true,
-	"updates":              true,
-	"agent_activity":       true,
-	"system_notifications": true,
+	"assignments":             true,
+	"status_changes":          true,
+	"comments":                true,
+	"updates":                 true,
+	"agent_activity":          true,
+	"system_notifications":    true,
+	"lark_card_notifications": true,
 }
 
 // validNotifValues is the set of allowed preference values per group.
@@ -38,6 +40,7 @@ func (h *Handler) GetNotificationPreferences(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	workspaceID := ctxWorkspaceID(r.Context())
+	larkCardAvailable := h.isLarkCardNotificationAvailable(r.Context(), userID, workspaceID, requestLarkTenantID(r))
 
 	pref, err := h.Queries.GetNotificationPreference(r.Context(), db.GetNotificationPreferenceParams{
 		WorkspaceID: parseUUID(workspaceID),
@@ -46,8 +49,9 @@ func (h *Handler) GetNotificationPreferences(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeJSON(w, http.StatusOK, map[string]any{
-				"workspace_id": workspaceID,
-				"preferences":  map[string]any{},
+				"workspace_id":                      workspaceID,
+				"preferences":                       map[string]any{},
+				"lark_card_notifications_available": larkCardAvailable,
 			})
 			return
 		}
@@ -62,8 +66,9 @@ func (h *Handler) GetNotificationPreferences(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"workspace_id": workspaceID,
-		"preferences":  prefs,
+		"workspace_id":                      workspaceID,
+		"preferences":                       prefs,
+		"lark_card_notifications_available": larkCardAvailable,
 	})
 }
 
@@ -77,6 +82,7 @@ func (h *Handler) UpdateNotificationPreferences(w http.ResponseWriter, r *http.R
 		return
 	}
 	workspaceID := ctxWorkspaceID(r.Context())
+	larkCardAvailable := h.isLarkCardNotificationAvailable(r.Context(), userID, workspaceID, requestLarkTenantID(r))
 
 	var req updateNotifPrefRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -123,7 +129,18 @@ func (h *Handler) UpdateNotificationPreferences(w http.ResponseWriter, r *http.R
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"workspace_id": workspaceID,
-		"preferences":  prefs,
+		"workspace_id":                      workspaceID,
+		"preferences":                       prefs,
+		"lark_card_notifications_available": larkCardAvailable,
 	})
+}
+
+func (h *Handler) isLarkCardNotificationAvailable(ctx context.Context, userID, workspaceID, tenantID string) bool {
+	if tenantID == "" && workspaceID != "" {
+		workspace, err := h.Queries.GetWorkspace(ctx, parseUUID(workspaceID))
+		if err == nil && workspace.HomeTenantID.Valid {
+			tenantID = uuidToString(workspace.HomeTenantID)
+		}
+	}
+	return NewLarkCardService(h.Queries, h.cfg).AvailableForUser(ctx, userID, tenantID)
 }

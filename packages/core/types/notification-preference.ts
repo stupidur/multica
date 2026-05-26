@@ -4,7 +4,8 @@ export type NotificationGroupKey =
   | "comments"
   | "updates"
   | "agent_activity"
-  | "system_notifications";
+  | "system_notifications"
+  | "lark_card_notifications";
 
 export type NotificationGroupValue = "all" | "muted";
 
@@ -13,4 +14,5 @@ export type NotificationPreferences = Partial<Record<NotificationGroupKey, Notif
 export interface NotificationPreferenceResponse {
   workspace_id: string;
   preferences: NotificationPreferences;
+  lark_card_notifications_available: boolean;
 }

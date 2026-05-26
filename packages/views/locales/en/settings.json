@@ -101,6 +101,10 @@
       "agent_activity": {
         "label": "Agent activity",
         "description": "When an agent task completes or fails"
+      },
+      "lark_card_notifications": {
+        "label": "Feishu interactive cards",
+        "description": "Send interactive Feishu cards for issue notifications"
       }
     },
     "system": {
@@ -108,6 +112,12 @@
       "description": "Control native OS notification banners shown when Multica is in the background.",
       "label": "Show system notifications",
       "hint": "Show a banner from your operating system for new inbox items when the app isn't focused."
+    },
+    "lark": {
+      "title": "Feishu Interactive Cards",
+      "description": "Send issue notifications as Feishu cards so you can reply and mark issues done without leaving Feishu.",
+      "label": "Enable Feishu interactive card notifications",
+      "hint": "Cards include project name, comment content, a direct issue link, a reply box, and a mark-done action."
     }
   },
   "tokens": {

@@ -49,6 +49,8 @@ export function NotificationsTab() {
   };
 
   const systemEnabled = preferences.system_notifications !== "muted";
+  const larkCardAvailable = data?.lark_card_notifications_available === true;
+  const larkCardEnabled = preferences.lark_card_notifications !== "muted";
 
   return (
     <div className="space-y-8">
@@ -111,6 +113,34 @@ export function NotificationsTab() {
           </CardContent>
         </Card>
       </section>
+
+      {larkCardAvailable ? (
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold">{t(($) => $.notifications.lark.title)}</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t(($) => $.notifications.lark.description)}
+            </p>
+          </div>
+
+          <Card>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5 pr-4">
+                  <p className="text-sm font-medium">{t(($) => $.notifications.lark.label)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.notifications.lark.hint)}
+                  </p>
+                </div>
+                <Switch
+                  checked={larkCardEnabled}
+                  onCheckedChange={(checked) => handleToggle("lark_card_notifications", checked)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
     </div>
   );
 }

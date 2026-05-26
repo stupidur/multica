@@ -47,12 +47,13 @@ type dbExecutor interface {
 }
 
 type Config struct {
-	AllowSignup         bool
-	AllowedEmails       []string
-	AllowedEmailDomains []string
-	LarkAppID           string
-	LarkAppSecret       string
-	LarkRedirectURI     string
+	AllowSignup           bool
+	AllowedEmails         []string
+	AllowedEmailDomains   []string
+	LarkAppID             string
+	LarkAppSecret         string
+	LarkRedirectURI       string
+	LarkVerificationToken string
 	// PublicURL is the absolute base URL the API is reachable at from the
 	// public internet, with no trailing slash (e.g. "https://app.multica.ai").
 	// Used only to build webhook_url responses for autopilot webhook triggers

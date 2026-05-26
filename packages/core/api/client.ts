@@ -131,6 +131,7 @@ import {
   EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE,
   EMPTY_GROUPED_ISSUES_RESPONSE,
   EMPTY_LIST_ISSUES_RESPONSE,
+  EMPTY_NOTIFICATION_PREFERENCE_RESPONSE,
   EMPTY_SQUAD_MEMBER_STATUS_LIST,
   EMPTY_TIMELINE_ENTRIES,
   EMPTY_USER,
@@ -138,6 +139,7 @@ import {
   EMPTY_WEBHOOK_DELIVERY,
   GroupedIssuesResponseSchema,
   ListIssuesResponseSchema,
+  NotificationPreferenceResponseSchema,
   ListWebhookDeliveriesResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
@@ -1286,16 +1288,28 @@ export class ApiClient {
 
   // Notification preferences
   async getNotificationPreferences(): Promise<NotificationPreferenceResponse> {
-    return this.fetch("/api/notification-preferences");
+    const raw = await this.fetch<unknown>("/api/notification-preferences");
+    return parseWithFallback(
+      raw,
+      NotificationPreferenceResponseSchema,
+      EMPTY_NOTIFICATION_PREFERENCE_RESPONSE,
+      { endpoint: "GET /api/notification-preferences" },
+    );
   }
 
   async updateNotificationPreferences(
     preferences: NotificationPreferences,
   ): Promise<NotificationPreferenceResponse> {
-    return this.fetch("/api/notification-preferences", {
+    const raw = await this.fetch<unknown>("/api/notification-preferences", {
       method: "PUT",
       body: JSON.stringify({ preferences }),
     });
+    return parseWithFallback(
+      raw,
+      NotificationPreferenceResponseSchema,
+      EMPTY_NOTIFICATION_PREFERENCE_RESPONSE,
+      { endpoint: "PUT /api/notification-preferences" },
+    );
   }
 
   // App Config

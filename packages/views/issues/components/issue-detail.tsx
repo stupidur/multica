@@ -622,6 +622,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const user = useAuthStore((s) => s.user);
   const workspace = useCurrentWorkspace();
   const paths = useWorkspacePaths();
+  const shouldFocusReplyInput = router.searchParams?.get("focus") === "reply";
 
   // Issue navigation — read from TQ list cache
   const wsId = useWorkspaceId();
@@ -682,6 +683,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // that: setState triggers the re-render that hands Virtuoso the element.
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const replyInputRef = useRef<HTMLDivElement>(null);
 
   // Per-session: which resolved threads the user has temporarily expanded.
   // Not persisted (matches Linear) — reload collapses everything back to bars.
@@ -1044,6 +1046,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     const fade = window.setTimeout(() => setHighlightedId(null), 2500);
     return () => clearTimeout(fade);
   }, [highlightCommentId, items, targetIdx, scrollContainerEl, replyToRoot, toggleResolvedExpand]);
+
+  useEffect(() => {
+    if (!shouldFocusReplyInput || loading || !scrollContainerEl) return;
+    replyInputRef.current?.scrollIntoView({ block: "center" });
+  }, [shouldFocusReplyInput, loading, scrollContainerEl, id]);
 
   // Cmd-F / Ctrl-F on a virtualized timeline only searches what's mounted in
   // the viewport — off-screen comments are invisible to browser find-in-page.
@@ -1956,13 +1963,18 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             )}
 
             {/* Bottom comment input — no avatar, full width */}
-            <div className="mt-4">
+            <div className="mt-4" id="issue-reply" ref={replyInputRef}>
               {/* key={id}: web's /issues/[id] route doesn't remount on
                   issueId change, so without an explicit key the editor
                   keeps the previous issue's in-memory content and the
                   next keystroke would flush it into the new issue's
                   draft key. */}
-              <CommentInput key={id} issueId={id} onSubmit={submitComment} />
+              <CommentInput
+                key={id}
+                issueId={id}
+                onSubmit={submitComment}
+                autoFocus={shouldFocusReplyInput}
+              />
             </div>
           </div>
         </div>

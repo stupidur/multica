@@ -137,6 +137,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		LarkAppID:                strings.TrimSpace(os.Getenv("LARK_APP_ID")),
 		LarkAppSecret:            strings.TrimSpace(os.Getenv("LARK_APP_SECRET")),
 		LarkRedirectURI:          strings.TrimSpace(os.Getenv("LARK_REDIRECT_URI")),
+		LarkVerificationToken:    strings.TrimSpace(os.Getenv("LARK_VERIFICATION_TOKEN")),
 		PublicURL:                strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_PUBLIC_URL")), "/"),
 		TrustedProxies:           parseTrustedProxies(os.Getenv("MULTICA_TRUSTED_PROXIES")),
 		CloudRuntimeFleetURL:     cloudRuntimeFleetURLFromEnv(),
@@ -265,6 +266,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// purpose: the bearer token in the URL path IS the credential. Workspace
 	// context is derived from the trigger row, never from request headers.
 	r.Post("/api/webhooks/autopilots/{token}", h.HandleAutopilotWebhook)
+	r.Post("/api/lark/card/callback", h.HandleLarkCardCallback)
 	// GitHub App webhook (no Multica auth — requests are authenticated via
 	// HMAC-SHA256 signature in the handler) and post-install setup callback.
 	r.Post("/api/webhooks/github", h.HandleGitHubWebhook)

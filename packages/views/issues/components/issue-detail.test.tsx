@@ -10,6 +10,8 @@ import enIssues from "../../locales/en/issues.json";
 const TEST_RESOURCES = { en: { common: enCommon, issues: enIssues } };
 
 const mockViewport = vi.hoisted(() => ({ isMobile: false }));
+const mockNavigation = vi.hoisted(() => ({ searchParams: new URLSearchParams() }));
+const mockEditorFocus = vi.hoisted(() => vi.fn());
 
 vi.mock("@multica/ui/hooks/use-mobile", () => ({
   useIsMobile: () => mockViewport.isMobile,
@@ -104,6 +106,7 @@ vi.mock("../../navigation", () => ({
   useNavigation: () => ({
     push: vi.fn(),
     pathname: "/issues/issue-1",
+    searchParams: mockNavigation.searchParams,
     getShareableUrl: (p: string) => `https://app.multica.com${p}`,
   }),
   NavigationProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -137,7 +140,7 @@ vi.mock("../../editor", () => ({
     useImperativeHandle(ref, () => ({
       getMarkdown: () => valueRef.current,
       clearContent: () => { valueRef.current = ""; setValue(""); },
-      focus: () => {},
+      focus: mockEditorFocus,
       uploadFile: () => {},
     }));
     return (
@@ -491,6 +494,8 @@ function renderIssueDetailWithHighlight(
 describe("IssueDetail (shared)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockNavigation.searchParams = new URLSearchParams();
+    mockEditorFocus.mockClear();
     mockViewport.isMobile = false;
     // Default: issue loads successfully
     mockApiObj.getIssue.mockResolvedValue(mockIssue);
@@ -845,6 +850,22 @@ describe("IssueDetail (shared)", () => {
   });
 
   describe("highlightCommentId scroll-to-comment", () => {
+    it("scrolls to and focuses the reply composer when focus=reply is present", async () => {
+      mockNavigation.searchParams = new URLSearchParams("focus=reply");
+
+      renderIssueDetail();
+
+      await waitFor(() => {
+        expect(document.getElementById("issue-reply")).not.toBeNull();
+      });
+      await waitFor(() => {
+        expect(scrollIntoViewSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ block: "center" }),
+        );
+        expect(mockEditorFocus).toHaveBeenCalled();
+      });
+    });
+
     it("scrolls to the highlighted comment after both issue and timeline finish loading", async () => {
       renderIssueDetailWithHighlight("comment-2");
 

@@ -17,9 +17,10 @@ import { useT } from "../../i18n";
 interface CommentInputProps {
   issueId: string;
   onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
+  autoFocus?: boolean;
 }
 
-function CommentInput({ issueId, onSubmit }: CommentInputProps) {
+function CommentInput({ issueId, onSubmit, autoFocus = false }: CommentInputProps) {
   const { t } = useT("issues");
   const editorRef = useRef<ContentEditorRef>(null);
   // Read the persisted draft once on mount. ContentEditor only honors
@@ -60,6 +61,12 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
       window.removeEventListener("pagehide", flush);
     };
   }, [draftKey, setDraft]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const focusTimer = window.setTimeout(() => editorRef.current?.focus(), 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [autoFocus, issueId]);
 
   const handleUpload = useCallback(async (file: File) => {
     const result = await uploadWithToast(file, { issueId });

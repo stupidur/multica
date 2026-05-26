@@ -249,12 +249,18 @@ func main() {
 
 	queries := db.New(pool)
 	hub.SetAuthorizer(newScopeAuthorizer(queries))
+	larkCardConfig := handler.Config{
+		LarkAppID:             strings.TrimSpace(os.Getenv("LARK_APP_ID")),
+		LarkAppSecret:         strings.TrimSpace(os.Getenv("LARK_APP_SECRET")),
+		LarkVerificationToken: strings.TrimSpace(os.Getenv("LARK_VERIFICATION_TOKEN")),
+		PublicURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_PUBLIC_URL")), "/"),
+	}
 	// Order matters: subscriber listeners must register BEFORE notification listeners.
 	// The notification listener queries the subscriber table to determine recipients,
 	// so subscribers must be written first within the same synchronous event dispatch.
 	registerSubscriberListeners(bus, queries)
 	registerActivityListeners(bus, queries)
-	registerNotificationListeners(bus, queries)
+	registerNotificationListeners(bus, queries, handler.NewLarkCardService(queries, larkCardConfig))
 
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server

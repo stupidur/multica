@@ -206,6 +206,18 @@ export const ChildIssuesResponseSchema = z.object({
   issues: z.array(IssueSchema).default([]),
 }).loose();
 
+export const NotificationPreferenceResponseSchema = z.object({
+	workspace_id: z.string().default(""),
+	preferences: z.record(z.string(), z.string()).default({}),
+	lark_card_notifications_available: z.boolean().default(false),
+}).loose();
+
+export const EMPTY_NOTIFICATION_PREFERENCE_RESPONSE = {
+	workspace_id: "",
+	preferences: {},
+	lark_card_notifications_available: false,
+};
+
 export const CloudRuntimeNodeSchema = z.object({
   id: z.string(),
   owner_id: z.string(),

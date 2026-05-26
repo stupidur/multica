@@ -18,7 +18,13 @@ export function useUpdateNotificationPreferences() {
       );
       qc.setQueryData<NotificationPreferenceResponse>(
         notificationPreferenceKeys.all(wsId),
-        (old) => old ? { ...old, preferences } : { workspace_id: wsId, preferences },
+        (old) => old
+          ? { ...old, preferences }
+          : {
+              workspace_id: wsId,
+              preferences,
+              lark_card_notifications_available: false,
+            },
       );
       return { prev };
     },

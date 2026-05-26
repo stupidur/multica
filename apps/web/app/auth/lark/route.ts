@@ -12,17 +12,52 @@ function buildAuthorizeUrl(appId: string, redirectUri: string, state: string) {
   return url.toString();
 }
 
-function parseState(raw: string): { nonce: string; next: string } | null {
+export interface LarkOAuthState {
+  nonce: string;
+  next: string;
+  cliCallback: string;
+  cliState: string;
+}
+
+export function parseState(raw: string): LarkOAuthState | null {
   try {
-    const parsed = JSON.parse(raw) as { nonce?: unknown; next?: unknown };
+    const parsed = JSON.parse(raw) as {
+      nonce?: unknown;
+      next?: unknown;
+      cli_callback?: unknown;
+      cli_state?: unknown;
+    };
     if (typeof parsed.nonce !== "string" || parsed.nonce === "") return null;
     return {
       nonce: parsed.nonce,
       next: typeof parsed.next === "string" ? parsed.next : "",
+      cliCallback: typeof parsed.cli_callback === "string" ? parsed.cli_callback : "",
+      cliState: typeof parsed.cli_state === "string" ? parsed.cli_state : "",
     };
   } catch {
     return null;
   }
+}
+
+export function buildStatePayload(state: LarkOAuthState): string {
+  return JSON.stringify({
+    nonce: state.nonce,
+    next: state.next,
+    cli_callback: state.cliCallback,
+    cli_state: state.cliState,
+  });
+}
+
+export function buildPostAuthRedirect(appOrigin: string, state: LarkOAuthState): URL {
+  const target = new URL(state.cliCallback ? "/login" : "/onboarding", appOrigin);
+  if (state.cliCallback) {
+    target.searchParams.set("cli_callback", state.cliCallback);
+    if (state.cliState) target.searchParams.set("cli_state", state.cliState);
+    if (state.next) target.searchParams.set("next", state.next);
+    return target;
+  }
+  if (state.next) target.searchParams.set("next", state.next);
+  return target;
 }
 
 function clearOAuthStateCookie(response: NextResponse) {
@@ -59,8 +94,10 @@ export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code") || "";
   if (!code) {
     const next = req.nextUrl.searchParams.get("next") || "";
+    const cliCallback = req.nextUrl.searchParams.get("cli_callback") || "";
+    const cliState = req.nextUrl.searchParams.get("cli_state") || "";
     const nonce = crypto.randomUUID();
-    const state = JSON.stringify({ nonce, next });
+    const state = buildStatePayload({ nonce, next, cliCallback, cliState });
     console.info("[lark-auth] redirecting to Feishu authorize", { redirectUri, hasNext: next !== "" });
     const response = NextResponse.redirect(buildAuthorizeUrl(appId, redirectUri, state));
     response.cookies.set(LARK_OAUTH_STATE_COOKIE, nonce, {
@@ -109,7 +146,7 @@ export async function GET(req: NextRequest) {
 
   const appOrigin = new URL(redirectUri).origin;
   console.info("[lark-auth] backend exchange succeeded", { appOrigin });
-  const response = NextResponse.redirect(new URL("/onboarding", appOrigin));
+  const response = NextResponse.redirect(buildPostAuthRedirect(appOrigin, state));
   clearOAuthStateCookie(response);
   for (const cookie of getSetCookies(loginRes.headers)) {
     response.headers.append("set-cookie", allowOAuthRedirectCookie(cookie));
