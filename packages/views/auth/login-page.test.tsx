@@ -86,6 +86,10 @@ function getOTPInput() {
   return screen.getByRole("textbox", { hidden: true });
 }
 
+async function switchToCodeSignIn(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("tab", { name: /code/i }));
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -120,11 +124,11 @@ describe("LoginPage", () => {
       screen.getByText(/sign in to multica/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/enter your email to get a login code/i),
+      screen.getByText(/sign in with your password or request a login code by email/i),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /continue/i }),
+      screen.getByRole("button", { name: /sign in/i }),
     ).toBeInTheDocument();
   });
 
@@ -139,6 +143,8 @@ describe("LoginPage", () => {
     // form programmatically the same way the component does — via form submit.
     // Since the button is disabled, we directly call handleSendCode's logic
     // by removing the required attr and submitting.
+    const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     const emailInput = screen.getByLabelText(/email/i);
     // The input has required + the button is disabled, so we need to type
     // a space then clear to trigger the empty-email error path.
@@ -148,7 +154,6 @@ describe("LoginPage", () => {
     expect(button).toBeDisabled();
 
     // Type an email to enable button, then clear it — button becomes disabled again
-    const user = userEvent.setup();
     await user.type(emailInput, "a");
     expect(button).not.toBeDisabled();
     await user.clear(emailInput);
@@ -164,6 +169,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -176,6 +182,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -187,6 +194,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -203,6 +211,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -216,6 +225,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -239,6 +249,7 @@ describe("LoginPage", () => {
 
     const user = userEvent.setup();
     // Step 1: email
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -275,6 +286,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -302,6 +314,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -321,6 +334,7 @@ describe("LoginPage", () => {
     const user = userEvent.setup();
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -337,6 +351,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -571,6 +586,7 @@ describe("LoginPage", () => {
     );
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "cli@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -637,6 +653,7 @@ describe("LoginPage", () => {
     );
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
@@ -664,6 +681,7 @@ describe("LoginPage", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
 
     const user = userEvent.setup();
+    await switchToCodeSignIn(user);
     await user.type(screen.getByLabelText(/email/i), "test@example.com");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
