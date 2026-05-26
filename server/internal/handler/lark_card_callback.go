@@ -193,7 +193,7 @@ func (h *Handler) createCommentFromLarkCard(ctx context.Context, userID pgtype.U
 		"issue_assignee_id":   uuidToPtr(issue.AssigneeID),
 		"issue_status":        issue.Status,
 	})
-	if h.shouldEnqueueOnComment(ctx, issue) &&
+	if h.shouldEnqueueOnComment(ctx, issue, "member", actorID) &&
 		!h.commentMentionsOthersButNotAssignee(comment.Content, issue) &&
 		!h.isReplyToMemberThread(ctx, nil, comment.Content, issue) {
 		if _, err := h.TaskService.EnqueueTaskForIssue(ctx, issue, comment.ID); err != nil {
