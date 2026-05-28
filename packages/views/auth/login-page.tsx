@@ -86,8 +86,9 @@ function redirectToCliCallback(url: string, token: string, state: string) {
 
 /**
  * Validate that a CLI callback URL points to a safe host over HTTP.
- * Allows localhost and private/LAN IPs (RFC 1918) to support self-hosted setups
- * on local VMs while blocking arbitrary public hosts.
+ * Allows localhost, private/LAN IPs (RFC 1918), and CGNAT addresses in
+ * 100.64.0.0/10 so CLI callbacks work on Tailscale while blocking arbitrary
+ * public hosts.
  */
 export function validateCliCallback(cliCallback: string): boolean {
   try {
@@ -99,6 +100,8 @@ export function validateCliCallback(cliCallback: string): boolean {
     if (/^10\./.test(h)) return true;
     if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
     if (/^192\.168\./.test(h)) return true;
+    // Allow RFC 6598 CGNAT space: 100.64.0.0/10 (used by Tailscale)
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
     return false;
   } catch {
     return false;

@@ -733,6 +733,12 @@ describe("validateCliCallback", () => {
     expect(validateCliCallback("http://192.168.0.1:8080/cb")).toBe(true);
   });
 
+  it("accepts 100.64.0.0/10 CGNAT IPs used by Tailscale", () => {
+    expect(validateCliCallback("http://100.64.0.1:9876/callback")).toBe(true);
+    expect(validateCliCallback("http://100.84.66.111:56491/callback")).toBe(true);
+    expect(validateCliCallback("http://100.127.255.254:8080/cb")).toBe(true);
+  });
+
   it("rejects https:// URLs", () => {
     expect(validateCliCallback("https://localhost:9876/callback")).toBe(false);
   });
@@ -740,6 +746,8 @@ describe("validateCliCallback", () => {
   it("rejects public IPs and domains", () => {
     expect(validateCliCallback("http://evil.com:9876/callback")).toBe(false);
     expect(validateCliCallback("http://8.8.8.8:9876/callback")).toBe(false);
+    expect(validateCliCallback("http://100.63.255.255:9876/callback")).toBe(false);
+    expect(validateCliCallback("http://100.128.0.1:9876/callback")).toBe(false);
     expect(validateCliCallback("http://192.169.1.1:9876/callback")).toBe(false);
   });
 
