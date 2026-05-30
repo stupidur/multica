@@ -76,8 +76,11 @@ export type {
   ListProjectsResponse,
   ProjectResource,
   ProjectResourceType,
+  ProjectResourceRef,
   GithubRepoResourceRef,
+  LocalDirectoryResourceRef,
   CreateProjectResourceRequest,
+  UpdateProjectResourceRequest,
   ListProjectResourcesResponse,
 } from "./project";
 export type { PinnedItem, PinnedItemType, CreatePinRequest, ReorderPinsRequest } from "./pin";
@@ -100,6 +103,7 @@ export type {
   AutopilotRun,
   AutopilotRunStatus,
   AutopilotRunSource,
+  WebhookEventFilter,
   CreateAutopilotRequest,
   UpdateAutopilotRequest,
   CreateAutopilotTriggerRequest,
@@ -130,3 +134,21 @@ export type {
   SquadMemberStatus,
   SquadMemberStatusListResponse,
 } from "./squad";
+export type {
+  BillingBalance,
+  BillingTransaction,
+  BillingTransactionsPage,
+  BillingTxType,
+  BillingTxSource,
+  BillingBatch,
+  BillingBatchesPage,
+  BillingBatchSourceType,
+  BillingTopup,
+  BillingTopupsPage,
+  BillingTopupStatus,
+  BillingPriceTier,
+  CreateBillingCheckoutSessionRequest,
+  CreateBillingCheckoutSessionResponse,
+  BillingCheckoutSessionStatus,
+  CreateBillingPortalSessionResponse,
+} from "./billing";
