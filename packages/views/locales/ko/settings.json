@@ -27,16 +27,26 @@
     "workspace_fallback": "워크스페이스",
     "tabs": {
       "profile": "프로필",
+      "password": "비밀번호",
       "preferences": "환경설정",
       "notifications": "알림",
       "tokens": "API 토큰",
       "general": "일반",
+      "system": "시스템",
       "repositories": "저장소",
       "github": "GitHub",
       "integrations": "연동",
       "labs": "실험실",
       "members": "멤버"
-    }
+    },
+    "save": "저장",
+    "system_saved": "시스템 설정을 저장했습니다",
+    "system_save_failed": "시스템 설정을 저장하지 못했습니다",
+    "system_admin_only": "관리자만 시스템 설정을 수정할 수 있습니다.",
+    "system_description": "이 워크스페이스의 시스템 수준 설정을 구성합니다.",
+    "system_title_label": "페이지 제목",
+    "system_title_placeholder": "페이지 제목을 입력하세요",
+    "system_title_hint": "이 제목은 브라우저 탭에 표시됩니다."
   },
   "account": {
     "section_profile": "프로필",
@@ -52,6 +62,22 @@
     "toast_avatar_failed": "아바타를 업로드하지 못했습니다",
     "toast_profile_updated": "프로필을 업데이트했습니다",
     "toast_profile_failed": "프로필을 업데이트하지 못했습니다"
+  },
+  "password": {
+    "section_title": "비밀번호",
+    "description": "다음 로그인부터 이메일과 비밀번호로 로그인할 수 있도록 비밀번호를 설정하세요. 이미 비밀번호가 있다면 현재 비밀번호를 입력해 변경할 수 있습니다.",
+    "current_label": "현재 비밀번호",
+    "current_placeholder": "현재 비밀번호를 입력하세요",
+    "current_hint": "코드 로그인 후 처음 비밀번호를 설정하는 경우에만 비워 두세요.",
+    "new_label": "새 비밀번호",
+    "new_placeholder": "최소 8자",
+    "confirm_label": "새 비밀번호 확인",
+    "confirm_placeholder": "새 비밀번호를 다시 입력하세요",
+    "confirm_mismatch": "비밀번호가 일치하지 않습니다.",
+    "save": "비밀번호 업데이트",
+    "saving": "업데이트 중...",
+    "toast_updated": "비밀번호를 업데이트했습니다",
+    "toast_failed": "비밀번호를 업데이트하지 못했습니다"
   },
   "notifications": {
     "title": "인박스 알림",
@@ -77,6 +103,10 @@
       "agent_activity": {
         "label": "에이전트 활동",
         "description": "에이전트 작업이 완료되거나 실패할 때"
+      },
+      "lark_card_notifications": {
+        "label": "Feishu 인터랙티브 카드",
+        "description": "이슈 알림을 Feishu 인터랙티브 카드로 보냅니다"
       }
     },
     "system": {
@@ -84,6 +114,12 @@
       "description": "Multica가 백그라운드에 있을 때 표시되는 운영체제 알림 배너를 제어합니다.",
       "label": "시스템 알림 표시",
       "hint": "앱에 포커스가 없을 때 새 인박스 항목에 대해 운영체제 배너를 표시합니다."
+    },
+    "lark": {
+      "title": "Feishu 인터랙티브 카드",
+      "description": "Feishu 안에서 바로 답장하거나 완료 처리할 수 있도록 이슈 알림을 Feishu 카드로 보냅니다.",
+      "label": "Feishu 인터랙티브 카드 알림 사용",
+      "hint": "카드에는 프로젝트 이름, 댓글 내용, 이슈 바로가기 링크, 답장 입력창, 완료 버튼이 포함됩니다."
     }
   },
   "tokens": {

@@ -27,16 +27,26 @@
     "workspace_fallback": "ワークスペース",
     "tabs": {
       "profile": "プロフィール",
+      "password": "パスワード",
       "preferences": "環境設定",
       "notifications": "通知",
       "tokens": "API トークン",
       "general": "一般",
+      "system": "システム",
       "repositories": "リポジトリ",
       "github": "GitHub",
       "integrations": "連携",
       "labs": "ラボ",
       "members": "メンバー"
-    }
+    },
+    "save": "保存",
+    "system_saved": "システム設定を保存しました",
+    "system_save_failed": "システム設定を保存できませんでした",
+    "system_admin_only": "システム設定を変更できるのは管理者のみです。",
+    "system_description": "このワークスペースのシステムレベル設定を構成します。",
+    "system_title_label": "ページタイトル",
+    "system_title_placeholder": "ページタイトルを入力してください",
+    "system_title_hint": "このタイトルはブラウザのタブに表示されます。"
   },
   "account": {
     "section_profile": "プロフィール",
@@ -52,6 +62,22 @@
     "toast_avatar_failed": "アバターをアップロードできませんでした",
     "toast_profile_updated": "プロフィールを更新しました",
     "toast_profile_failed": "プロフィールを更新できませんでした"
+  },
+  "password": {
+    "section_title": "パスワード",
+    "description": "次回からメールアドレスとパスワードでログインできるように、パスワードを設定してください。すでに設定済みの場合は、現在のパスワードを入力して変更できます。",
+    "current_label": "現在のパスワード",
+    "current_placeholder": "現在のパスワードを入力してください",
+    "current_hint": "コードでサインインした後に初めてパスワードを設定する場合のみ空欄にしてください。",
+    "new_label": "新しいパスワード",
+    "new_placeholder": "8文字以上",
+    "confirm_label": "新しいパスワードを確認",
+    "confirm_placeholder": "新しいパスワードをもう一度入力してください",
+    "confirm_mismatch": "パスワードが一致しません。",
+    "save": "パスワードを更新",
+    "saving": "更新中...",
+    "toast_updated": "パスワードを更新しました",
+    "toast_failed": "パスワードを更新できませんでした"
   },
   "notifications": {
     "title": "インボックス通知",
@@ -77,6 +103,10 @@
       "agent_activity": {
         "label": "エージェントのアクティビティ",
         "description": "エージェントのタスクが完了または失敗したとき"
+      },
+      "lark_card_notifications": {
+        "label": "Feishu インタラクティブカード",
+        "description": "イシュー通知を Feishu のインタラクティブカードとして送信します"
       }
     },
     "system": {
@@ -84,6 +114,12 @@
       "description": "Multica がバックグラウンドにあるときに表示される OS のネイティブ通知バナーを制御します。",
       "label": "システム通知を表示",
       "hint": "アプリにフォーカスがないときに、新しいインボックス項目について OS のバナーを表示します。"
+    },
+    "lark": {
+      "title": "Feishu インタラクティブカード",
+      "description": "Feishu を離れずに返信や完了処理ができるよう、イシュー通知を Feishu カードとして送信します。",
+      "label": "Feishu インタラクティブカード通知を有効にする",
+      "hint": "カードにはプロジェクト名、コメント内容、イシューへの直接リンク、返信ボックス、完了アクションが含まれます。"
     }
   },
   "tokens": {
