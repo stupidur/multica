@@ -4,7 +4,7 @@ import {
   buildStatePayload,
   parseState,
   type LarkOAuthState,
-} from "./route";
+} from "./route-state";
 
 describe("Lark auth route helpers", () => {
   it("round-trips cli callback fields through oauth state", () => {
