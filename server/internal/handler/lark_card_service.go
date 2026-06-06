@@ -231,7 +231,6 @@ type larkCardViewData struct {
 }
 
 type larkCardCopy struct {
-	EmptyBody        string
 	ReplyPlaceholder string
 	SubmitReply      string
 	MarkDone         string
@@ -240,12 +239,69 @@ type larkCardCopy struct {
 	ReplySynced      string
 }
 
+// larkBodyElement converts a comment / agent response body to Feishu card
+// elements. Returns nil when the body has no content so the caller can
+// drop the body section entirely. Otherwise the body is parsed as markdown
+// and rendered into one or more card elements — this lets tables, fenced
+// code blocks, horizontal rules, and headings render as proper card
+// features (lark_md itself only supports inline markdown).
+func larkBodyElement(body string) []map[string]any {
+	cleaned := strings.TrimSpace(stripLarkMentionMarkdown(body))
+	if cleaned == "" {
+		return nil
+	}
+	return renderMarkdownToLarkElements(cleaned)
+}
+
 func (s *LarkCardService) buildInboxCard(data larkCardViewData) map[string]any {
 	copy := larkCardCopyForLanguage(data.Language)
 	body := strings.TrimSpace(stripLarkMentionMarkdown(data.CommentBody))
-	if body == "" {
-		body = copy.EmptyBody
-	}
+	elements := make([]map[string]any, 0, 3)
+	elements = append(elements, larkBodyElement(data.CommentBody)...)
+	elements = append(elements,
+		map[string]any{
+			"tag": "action",
+			"actions": []map[string]any{
+				{
+					"tag":  "input",
+					"name": larkCardReplyFieldName,
+					"value": map[string]any{
+						"action":       "reply",
+						"workspace_id": data.WorkspaceID,
+						"issue_id":     data.IssueID,
+						"body":         body,
+					},
+					"placeholder": map[string]any{
+						"tag":     "plain_text",
+						"content": copy.ReplyPlaceholder,
+					},
+					"max_length": 1000,
+					"width":      "fill",
+				},
+			},
+		},
+		map[string]any{
+			"tag": "action",
+			"actions": []map[string]any{
+				{
+					"tag":  "button",
+					"type": "default",
+					"text": map[string]any{"tag": "plain_text", "content": copy.MarkDone},
+					"value": map[string]any{
+						"action":       "complete",
+						"workspace_id": data.WorkspaceID,
+						"issue_id":     data.IssueID,
+						"body":         body,
+					},
+				},
+				{
+					"tag":       "button",
+					"text":      map[string]any{"tag": "plain_text", "content": copy.OpenIssue},
+					"multi_url": larkCardMultiURL(data.IssueURL),
+				},
+			},
+		},
+	)
 	return map[string]any{
 		"config": map[string]any{
 			"wide_screen_mode": true,
@@ -259,66 +315,31 @@ func (s *LarkCardService) buildInboxCard(data larkCardViewData) map[string]any {
 				"content": firstNonEmptyString(data.ProjectName, data.IssueTitle, "Multica"),
 			},
 		},
-		"elements": []map[string]any{
-			{
-				"tag": "div",
-				"text": map[string]any{
-					"tag":     "lark_md",
-					"content": escapeLarkMarkdown(body),
-				},
-			},
-			{
-				"tag": "action",
-				"actions": []map[string]any{
-					{
-						"tag":  "input",
-						"name": larkCardReplyFieldName,
-						"value": map[string]any{
-							"action":       "reply",
-							"workspace_id": data.WorkspaceID,
-							"issue_id":     data.IssueID,
-							"body":         body,
-						},
-						"placeholder": map[string]any{
-							"tag":     "plain_text",
-							"content": copy.ReplyPlaceholder,
-						},
-						"max_length": 1000,
-						"width":      "fill",
-					},
-				},
-			},
-			{
-				"tag": "action",
-				"actions": []map[string]any{
-					{
-						"tag":  "button",
-						"type": "default",
-						"text": map[string]any{"tag": "plain_text", "content": copy.MarkDone},
-						"value": map[string]any{
-							"action":       "complete",
-							"workspace_id": data.WorkspaceID,
-							"issue_id":     data.IssueID,
-							"body":         body,
-						},
-					},
-					{
-						"tag":       "button",
-						"text":      map[string]any{"tag": "plain_text", "content": copy.OpenIssue},
-						"multi_url": larkCardMultiURL(data.IssueURL),
-					},
-				},
-			},
-		},
+		"elements": elements,
 	}
 }
 
 func (s *LarkCardService) buildCompletedCard(data larkCardViewData) map[string]any {
 	copy := larkCardCopyForLanguage(data.Language)
-	body := strings.TrimSpace(stripLarkMentionMarkdown(data.CommentBody))
-	if body == "" {
-		body = copy.EmptyBody
-	}
+	elements := make([]map[string]any, 0, 3)
+	elements = append(elements, larkBodyElement(data.CommentBody)...)
+	elements = append(elements,
+		map[string]any{
+			"tag": "note",
+			"elements": []map[string]any{{
+				"tag":     "plain_text",
+				"content": copy.CompletedSynced,
+			}},
+		},
+		map[string]any{
+			"tag": "action",
+			"actions": []map[string]any{{
+				"tag":       "button",
+				"text":      map[string]any{"tag": "plain_text", "content": copy.OpenIssue},
+				"multi_url": larkCardMultiURL(data.IssueURL),
+			}},
+		},
+	)
 	return map[string]any{
 		"config": map[string]any{
 			"wide_screen_mode": true,
@@ -332,39 +353,31 @@ func (s *LarkCardService) buildCompletedCard(data larkCardViewData) map[string]a
 				"content": firstNonEmptyString(data.ProjectName, data.IssueTitle, "Multica"),
 			},
 		},
-		"elements": []map[string]any{
-			{
-				"tag": "div",
-				"text": map[string]any{
-					"tag":     "lark_md",
-					"content": escapeLarkMarkdown(body),
-				},
-			},
-			{
-				"tag": "note",
-				"elements": []map[string]any{{
-					"tag":     "plain_text",
-					"content": copy.CompletedSynced,
-				}},
-			},
-			{
-				"tag": "action",
-				"actions": []map[string]any{{
-					"tag":       "button",
-					"text":      map[string]any{"tag": "plain_text", "content": copy.OpenIssue},
-					"multi_url": larkCardMultiURL(data.IssueURL),
-				}},
-			},
-		},
+		"elements": elements,
 	}
 }
 
 func (s *LarkCardService) buildRepliedCard(data larkCardViewData) map[string]any {
 	copy := larkCardCopyForLanguage(data.Language)
-	body := strings.TrimSpace(stripLarkMentionMarkdown(data.CommentBody))
-	if body == "" {
-		body = copy.EmptyBody
-	}
+	elements := make([]map[string]any, 0, 3)
+	elements = append(elements, larkBodyElement(data.CommentBody)...)
+	elements = append(elements,
+		map[string]any{
+			"tag": "note",
+			"elements": []map[string]any{{
+				"tag":     "plain_text",
+				"content": copy.ReplySynced,
+			}},
+		},
+		map[string]any{
+			"tag": "action",
+			"actions": []map[string]any{{
+				"tag":       "button",
+				"text":      map[string]any{"tag": "plain_text", "content": copy.OpenIssue},
+				"multi_url": larkCardMultiURL(data.IssueURL),
+			}},
+		},
+	)
 	return map[string]any{
 		"config": map[string]any{
 			"wide_screen_mode": true,
@@ -378,30 +391,7 @@ func (s *LarkCardService) buildRepliedCard(data larkCardViewData) map[string]any
 				"content": firstNonEmptyString(data.ProjectName, data.IssueTitle, "Multica"),
 			},
 		},
-		"elements": []map[string]any{
-			{
-				"tag": "div",
-				"text": map[string]any{
-					"tag":     "lark_md",
-					"content": escapeLarkMarkdown(body),
-				},
-			},
-			{
-				"tag": "note",
-				"elements": []map[string]any{{
-					"tag":     "plain_text",
-					"content": copy.ReplySynced,
-				}},
-			},
-			{
-				"tag": "action",
-				"actions": []map[string]any{{
-					"tag":       "button",
-					"text":      map[string]any{"tag": "plain_text", "content": copy.OpenIssue},
-					"multi_url": larkCardMultiURL(data.IssueURL),
-				}},
-			},
-		},
+		"elements": elements,
 	}
 }
 
@@ -549,11 +539,6 @@ func stripLarkMentionMarkdown(text string) string {
 	})
 }
 
-func escapeLarkMarkdown(text string) string {
-	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
-	return replacer.Replace(strings.TrimSpace(text))
-}
-
 func recipientLanguage(user db.User) string {
 	if !user.Language.Valid {
 		return ""
@@ -564,7 +549,6 @@ func recipientLanguage(user db.User) string {
 func larkCardCopyForLanguage(language string) larkCardCopy {
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(language)), "zh") {
 		return larkCardCopy{
-			EmptyBody:        "无评论内容",
 			ReplyPlaceholder: "回复 Multica...",
 			SubmitReply:      "发送回复",
 			MarkDone:         "标记完成",
@@ -574,7 +558,6 @@ func larkCardCopyForLanguage(language string) larkCardCopy {
 		}
 	}
 	return larkCardCopy{
-		EmptyBody:        "No comment content",
 		ReplyPlaceholder: "Reply to Multica...",
 		SubmitReply:      "Submit reply",
 		MarkDone:         "Mark done",

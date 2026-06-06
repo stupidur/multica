@@ -55,6 +55,14 @@ func priorityLabel(p string) string {
 
 var emptyDetails = []byte("{}")
 
+// noCardNotifTypes lists inbox notification types that should never produce a
+// Lark card. Status changes carry no message body and currently render as
+// header-only cards with no signal — silence them at the source rather than
+// ship empty content into Feishu.
+var noCardNotifTypes = map[string]bool{
+	"status_changed": true,
+}
+
 type inboxCardNotifier interface {
 	SendInboxCard(ctx context.Context, req handler.LarkInboxCardRequest) error
 }
@@ -352,7 +360,7 @@ func notifyIssueSubscribers(
 				"subscriber_id", subID, "type", notifType, "error", err)
 			continue
 		}
-		if cardNotifier != nil {
+		if cardNotifier != nil && !noCardNotifTypes[notifType] {
 			if err := cardNotifier.SendInboxCard(ctx, handler.LarkInboxCardRequest{
 				RecipientUserID: subID,
 				TenantID:        requestLarkTenantIDFromEvent(e),
