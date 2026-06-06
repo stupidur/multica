@@ -86,6 +86,10 @@ services:
       DISABLE_WORKSPACE_CREATION: ${DISABLE_WORKSPACE_CREATION:-}
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      LARK_APP_ID: ${LARK_APP_ID:-}
+      LARK_APP_SECRET: ${LARK_APP_SECRET:-}
+      LARK_REDIRECT_URI: ${LARK_REDIRECT_URI:-}
+      LARK_VERIFICATION_TOKEN: ${LARK_VERIFICATION_TOKEN:-}
       # Public URL the API is reachable at from the open internet, no
       # trailing slash. Used to mint absolute webhook URLs for autopilot
       # webhook triggers. Leave unset behind a same-origin reverse proxy
@@ -121,6 +125,9 @@ services:
       - "0.0.0.0:${FRONTEND_PORT:-3000}:3000"
     environment:
       HOSTNAME: "0.0.0.0"
+      LARK_APP_ID: ${LARK_APP_ID:-}
+      LARK_REDIRECT_URI: ${LARK_REDIRECT_URI:-}
+      REMOTE_API_URL: ${REMOTE_API_URL:-http://backend:8080}
     restart: unless-stopped
 
 volumes:
