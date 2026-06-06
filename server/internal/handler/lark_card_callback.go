@@ -224,8 +224,8 @@ func (h *Handler) markIssueDoneFromLarkCard(ctx context.Context, userID pgtype.U
 	}
 	prefix := h.getIssuePrefix(ctx, issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
-	prevStartDate := timestampToPtr(prevIssue.StartDate)
-	prevDueDate := timestampToPtr(prevIssue.DueDate)
+	prevStartDate := dateToPtr(prevIssue.StartDate)
+	prevDueDate := dateToPtr(prevIssue.DueDate)
 	actorID := uuidToString(userID)
 	h.publish(protocol.EventIssueUpdated, uuidToString(issue.WorkspaceID), "member", actorID, map[string]any{
 		"issue":               resp,
@@ -248,7 +248,7 @@ func (h *Handler) markIssueDoneFromLarkCard(ctx context.Context, userID pgtype.U
 		"creator_id":          uuidToString(prevIssue.CreatorID),
 	})
 	if prevIssue.Status != "done" && issue.Status == "done" {
-		h.notifyParentOfChildDone(ctx, prevIssue, issue)
+		h.notifyParentOfChildDone(ctx, prevIssue, issue, "member", actorID)
 	}
 	return resp, nil
 }

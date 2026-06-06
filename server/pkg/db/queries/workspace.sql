@@ -1,7 +1,7 @@
 -- name: ListWorkspaces :many
 SELECT w.id, w.name, w.slug, w.description, w.settings,
        w.created_at, w.updated_at, w.context, w.repos,
-       w.issue_prefix, w.issue_counter, w.home_tenant_id, w.visibility
+       w.issue_prefix, w.issue_counter, w.home_tenant_id, w.visibility, w.avatar_url
 FROM member m
 JOIN workspace w ON w.id = m.workspace_id
 WHERE m.user_id = $1
@@ -39,6 +39,7 @@ UPDATE workspace SET
     repos = COALESCE(sqlc.narg('repos'), repos),
     issue_prefix = COALESCE(sqlc.narg('issue_prefix'), issue_prefix),
     visibility = COALESCE(sqlc.narg('visibility'), visibility),
+    avatar_url = COALESCE(sqlc.narg('avatar_url'), avatar_url),
     updated_at = now()
 WHERE id = $1
 RETURNING *;

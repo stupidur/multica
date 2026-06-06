@@ -6,6 +6,8 @@ interface ConfigState {
   allowSignup: boolean;
   googleClientId: string;
   larkAppId: string;
+  daemonServerUrl: string;
+  daemonAppUrl: string;
   // Self-host gate (#3433): when true, every "Create workspace" affordance
   // must be hidden. Defaults to false so unknown / older servers behave like
   // the managed-cloud case.
@@ -17,6 +19,10 @@ interface ConfigState {
     larkAppId?: string;
     workspaceCreationDisabled?: boolean;
   }) => void;
+  setDaemonConfig: (config: {
+    daemonServerUrl?: string;
+    daemonAppUrl?: string;
+  }) => void;
 }
 
 export const configStore = createStore<ConfigState>((set) => ({
@@ -24,6 +30,8 @@ export const configStore = createStore<ConfigState>((set) => ({
   allowSignup: true,
   googleClientId: "",
   larkAppId: "",
+  daemonServerUrl: "",
+  daemonAppUrl: "",
   workspaceCreationDisabled: false,
   setCdnDomain: (domain) => set({ cdnDomain: domain }),
   setAuthConfig: ({
@@ -32,6 +40,8 @@ export const configStore = createStore<ConfigState>((set) => ({
     larkAppId = "",
     workspaceCreationDisabled = false,
   }) => set({ allowSignup, googleClientId, larkAppId, workspaceCreationDisabled }),
+  setDaemonConfig: ({ daemonServerUrl = "", daemonAppUrl = "" }) =>
+    set({ daemonServerUrl, daemonAppUrl }),
 }));
 
 export function useConfigStore(): ConfigState;
