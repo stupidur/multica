@@ -27,6 +27,7 @@ import type {
   InboxItem,
   IssueSubscriber,
   Comment,
+  CommentTriggerPreview,
   Reaction,
   IssueReaction,
   Workspace,
@@ -65,6 +66,7 @@ import type {
   ChatPendingTask,
   PendingChatTasksResponse,
   SendChatMessageResponse,
+  CancelTaskResponse,
   Project,
   CreateProjectRequest,
   UpdateProjectRequest,
@@ -131,8 +133,10 @@ import {
   AgentTemplateSchema,
   AgentTemplateSummaryListSchema,
   AttachmentResponseSchema,
+  CancelTaskResponseSchema,
   ChildIssuesResponseSchema,
   CommentsListSchema,
+  CommentTriggerPreviewSchema,
   CloudRuntimeNodeListSchema,
   CloudRuntimeNodeSchema,
   CreateAgentFromTemplateResponseSchema,
@@ -190,6 +194,7 @@ import {
   EMPTY_CREATE_BILLING_CHECKOUT_SESSION_RESPONSE,
   EMPTY_BILLING_CHECKOUT_SESSION_STATUS,
   EMPTY_CREATE_BILLING_PORTAL_SESSION_RESPONSE,
+  EMPTY_CANCEL_TASK_RESPONSE,
 } from "./schemas";
 
 /** Identifies the calling client to the server.
@@ -657,6 +662,7 @@ export class ApiClient {
     prompt: string;
     project_id?: string | null;
     parent_issue_id?: string | null;
+    attachment_ids?: string[];
   }): Promise<{ task_id: string }> {
     return this.fetch("/api/issues/quick-create", {
       method: "POST",
@@ -748,6 +754,7 @@ export class ApiClient {
     type?: string,
     parentId?: string,
     attachmentIds?: string[],
+    suppressAgentIds?: string[],
   ): Promise<Comment> {
     return this.fetch(`/api/issues/${issueId}/comments`, {
       method: "POST",
@@ -756,7 +763,21 @@ export class ApiClient {
         type: type ?? "comment",
         ...(parentId ? { parent_id: parentId } : {}),
         ...(attachmentIds?.length ? { attachment_ids: attachmentIds } : {}),
+        ...(suppressAgentIds?.length ? { suppress_agent_ids: suppressAgentIds } : {}),
       }),
+    });
+  }
+
+  async previewCommentTriggers(issueId: string, content: string, parentId?: string): Promise<CommentTriggerPreview> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/comments/trigger-preview`, {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+        ...(parentId ? { parent_id: parentId } : {}),
+      }),
+    });
+    return parseWithFallback(raw, CommentTriggerPreviewSchema, { agents: [] }, {
+      endpoint: "POST /api/issues/:id/comments/trigger-preview",
     });
   }
 
@@ -1899,8 +1920,11 @@ export class ApiClient {
     });
   }
 
-  async cancelTaskById(taskId: string): Promise<void> {
-    await this.fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+  async cancelTaskById(taskId: string): Promise<CancelTaskResponse> {
+    const raw = await this.fetch<unknown>(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+    return parseWithFallback(raw, CancelTaskResponseSchema, EMPTY_CANCEL_TASK_RESPONSE, {
+      endpoint: "POST /api/tasks/{taskId}/cancel",
+    });
   }
 
   async listAttachments(issueId: string): Promise<Attachment[]> {

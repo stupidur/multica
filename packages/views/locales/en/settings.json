@@ -120,6 +120,14 @@
       "description": "Send issue notifications as Feishu cards so you can reply and mark issues done without leaving Feishu.",
       "label": "Enable Feishu interactive card notifications",
       "hint": "Cards include project name, comment content, a direct issue link, a reply box, and a mark-done action."
+    },
+    "browser": {
+      "label": "Browser notifications",
+      "hint": "Allow this browser to show notification banners for new inbox items.",
+      "enable": "Enable",
+      "granted": "This browser can show notification banners.",
+      "denied": "Blocked by your browser. Enable notifications for this site in your browser settings.",
+      "enabled_badge": "Enabled"
     }
   },
   "tokens": {

@@ -11,19 +11,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/logger"
+	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const (
-	larkProvider                  = "lark"
-	larkAppAccessTokenURL         = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal"
-	larkOAuthTokenURL             = "https://open.feishu.cn/open-apis/authen/v2/oauth/token"
-	larkOIDCUserInfoURL           = "https://open.feishu.cn/open-apis/authen/v1/user_info"
-	larkDefaultSyntheticDomain    = "lark.multica.local"
+	larkProvider               = "lark"
+	larkAppAccessTokenURL      = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal"
+	larkOAuthTokenURL          = "https://open.feishu.cn/open-apis/authen/v2/oauth/token"
+	larkOIDCUserInfoURL        = "https://open.feishu.cn/open-apis/authen/v1/user_info"
+	larkDefaultSyntheticDomain = "lark.multica.local"
 )
 
 type LarkLoginRequest struct {
@@ -133,7 +134,7 @@ func (h *Handler) LarkLogin(w http.ResponseWriter, r *http.Request) {
 		evt := analytics.Signup(uuidToString(user.ID), user.Email, signupSourceFromRequest(r))
 		evt.Properties["auth_method"] = larkProvider
 		evt.Properties["tenant_key"] = profile.Data.TenantKey
-		h.Analytics.Capture(evt)
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, evt)
 	}
 
 	slog.Info("user logged in via lark", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "tenant_id", uuidToString(tenant.ID), "open_id", profile.Data.OpenID)...)
