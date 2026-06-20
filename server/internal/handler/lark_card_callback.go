@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/logger"
-	"github.com/multica-ai/multica/server/internal/mention"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -172,7 +171,6 @@ func writeLarkCardToast(w http.ResponseWriter, status int, toastType, content st
 
 func (h *Handler) createCommentFromLarkCard(ctx context.Context, userID pgtype.UUID, issue db.Issue, content string) (CommentResponse, error) {
 	content = strings.TrimSpace(content)
-	content = mention.ExpandIssueIdentifiers(ctx, h.Queries, issue.WorkspaceID, content)
 	comment, err := h.Queries.CreateComment(ctx, db.CreateCommentParams{
 		IssueID:     issue.ID,
 		WorkspaceID: issue.WorkspaceID,
